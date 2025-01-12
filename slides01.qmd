@@ -4,7 +4,7 @@ author: Thomas E. Love, Ph.D.
 date: "2025-01-14"
 format:
   revealjs: 
-    theme: default
+    theme: simple
     embed-resources: true
     self-contained: true
     slide-number: true
@@ -23,10 +23,10 @@ Our web site: <https://thomaselove.github.io/432-2025/>
 
 Visit the [Calendar](https://thomaselove.github.io/432-2025/calendar.html) at the top of the page, which will take you to the Class 01 README page.
 
-- These Slides for Class 01 are linked at the Class 01 README. 
+- Slides for Class 01 linked at Class 01 README. 
   - We'll look at the **HTML slides** during class.
-  - We also provide the Quarto code I used to build the slides, and a Word version which some people prefer for taking notes.
-
+  - We also provide the Quarto code, and a Word version.
+  
 ## Today's Agenda
 
 1. Mechanics of the course
@@ -289,11 +289,11 @@ Don't spend a lot of time bemoaning or cleaning up past ills. Strive to improve 
 
 If you can write an R Markdown file, it will also work in Quarto, by switching the extension from `.rmd` to `.qmd`.
 
-- We provide a Quarto template for Lab 1 (due Wednesday 2025-01-22 at Noon) which should ease your transition a bit.
+- Quarto template for Lab 1 (due Wednesday 2025-01-22 at Noon) should ease your transition.
 - Read [Chapter 30 (Quarto)](https://r4ds.hadley.nz/quarto.html) in [R for Data Science, 2e](https://r4ds.hadley.nz/)
 - Lots of other suggestions in the [Class 01 README](https://github.com/THOMASELOVE/432-classes-2025/tree/main/class01) and [our Sources page](https://github.com/THOMASELOVE/432-classes-2025/tree/main/sources#learning-about-quarto-and-making-the-switch-from-r-markdown).
 
-All material for this course is written using Quarto.
+All course material is written using Quarto.
 
 # Building and Validating Linear Prediction Models
 
