@@ -101,8 +101,8 @@ Seven labs, meant to be (generally) shorter than 431 Labs
 ## Getting Help
 
 - [Campuswire](https://campuswire.com/) is the location for discussion about the class.
-- 6-7 teaching assistants volunteering their time to help you.
-- TAs hold Zoom Office Hours starting Friday 2025-01-19.
+- Seven teaching assistants volunteering their time to help you.
+- TAs hold Zoom Office Hours (Fridays and Sunday - Tuesday) starting Friday 2025-01-17.
 - Dr. Love is also available after every class to chat.
 - Email Dr. Love if you have a matter you need to discuss with him, at **Thomas dot Love** at **case dot edu**.
 
@@ -119,6 +119,7 @@ We WELCOME questions/comments/corrections/thoughts!
 ## Tools You Will Use in this Class
 
 - **[Campuswire](https://campuswire.com/)** is our discussion board. It's a moderated place to ask questions, answer questions of your colleagues, and get help fast. Open 24/7.
+    - There's a poll there now (closes tomorrow at noon).
 - **Zoom** for class sessions / recordings and TA office hours
 
 Some source materials are **password-protected**. What is the password?
@@ -308,8 +309,8 @@ knitr::opts_chunk$set(comment = NA)
 
 library(janitor)
 
-library(broom); library(glue); library(gt); library(knitr)
-library(mosaic); library(patchwork); library(rsample)
+library(broom); library(glue); library(gt); library(kableExtra) 
+library(knitr); library(mosaic); library(patchwork); library(rsample)
 library(palmerpenguins)
 
 library(easystats)
@@ -354,9 +355,12 @@ our_test |> tabyl(species) |> adorn_totals() |>
   adorn_pct_formatting()
 ```
 
----
+## What will this produce?
 
 ```{r}
+#| echo: true
+#| output-location: slide
+
 ggplot(data = our_train, aes(x = species, y = bill_length_mm)) +
   geom_violin(aes(fill = species)) +
   geom_boxplot(width = 0.3, notch = TRUE) +
@@ -368,27 +372,6 @@ ggplot(data = our_train, aes(x = species, y = bill_length_mm)) +
        subtitle = glue(nrow(our_train), " of the Palmer Penguins"),
        x = "Species", y = "Bill Length (in mm)")
 ```
-
-## Code for previous slide
-
-```{r}
-#| echo: true
-#| eval: false
-ggplot(data = our_train, 
-       aes(x = species, y = bill_length_mm)) +
-  geom_violin(aes(fill = species)) +
-  geom_boxplot(width = 0.3, notch = TRUE) +
-  stat_summary(fill = "purple", fun = "mean", 
-               geom = "point", 
-               shape = 23, size = 3) +
-  facet_wrap(~ sex) + 
-  guides(fill = "none") +
-  labs(title = "Bill Length, by Species, faceted by Sex",
-       subtitle = 
-         glue(nrow(our_train), " of the Palmer Penguins"),
-       x = "Species", y = "Bill Length (in mm)")
-```
-
 
 ## Model m1
 
@@ -405,25 +388,90 @@ anova(m1)
 ```{r}
 #| echo: true
 tidy(m1, conf.int = TRUE, conf.level = 0.90) |>
-  select(term, estimate, conf.low, conf.high) |>
-  kable(digits = 1)
+  select(term, estimate, conf.low, conf.high)
 ```
-
-## Model 1 parameters {.smaller}
 
 ```{r}
 #| echo: true
-model_parameters(m1, ci = 0.90) |> print_md(digits = 1)
+model_parameters(m1, ci = 0.90)
 ```
+
+# Interlude (Four Ways to Display Tables in Slides)
+
+## Model 1 Parameters (version 1)
+
+```{r}
+#| echo: true
+
+tidy(m1, conf.int = TRUE, conf.level = 0.90) |>
+  select(term, estimate, conf.low, conf.high)
+
+model_parameters(m1, ci = 0.90)
+```
+
+## Model 1 Parameters (version 2a)
+
+```{r}
+#| echo: true
+
+tidy(m1, conf.int = TRUE, conf.level = 0.90) |>
+  select(term, estimate, conf.low, conf.high) |> 
+  gt() |> fmt_number(decimals = 2) |>
+  tab_options(table.font.size = 24)
+```
+
+## Model 1 Parameters (version 2b)
+
+```{r}
+#| echo: true
+model_parameters(m1, ci = 0.90) |> 
+  gt() |> fmt_number(columns = Coefficient:t, decimals = 2) |>
+  tab_options(table.font.size = 24)
+```
+
+
+## Model 1 Parameters (version 3)
+
+```{r}
+#| echo: true
+
+tidy(m1, conf.int = TRUE, conf.level = 0.90) |>
+  select(term, estimate, conf.low, conf.high) |> 
+  kable(digits = 2) |> kable_styling(font_size = 24)
+
+model_parameters(m1, ci = 0.90) |> 
+  kable(digits = 2) |> kable_styling(font_size = 24)
+```
+
+## Model 1 Parameters (version 4)
+
+```{r}
+#| echo: true
+
+tidy(m1, conf.int = TRUE, conf.level = 0.90) |>
+  select(term, estimate, conf.low, conf.high) |> 
+  print_html(digits = 2)
+
+model_parameters(m1, ci = 0.90) |> 
+  print_html(digits = 2, font_size = "60%")
+```
+
 
 ## Model 1 performance
 
 ```{r}
 #| echo: true
 
-model_performance(m1) |> print_md(digits = 3)
+model_performance(m1) |> gt() |> 
+  fmt_number(decimals = 3) |> tab_options(table.font.size = 24)
+```
 
-glance(m1) |> kable(digits = 3)
+```{r}
+#| echo: true
+
+glance(m1) |> gt() |> 
+  fmt_number(columns = -c("df", "df.residual", "nobs"), decimals = 3) |>
+  tab_options(table.font.size = 20)
 ```
 
 
@@ -558,7 +606,7 @@ check_model(m1, detrend = FALSE, check = c("vif", "qq"))
 
 ## For Next Time...
 
-4. Accept the invitation to join the [Campuswire](https://campuswire.com/) Discussion Forum for 432.
+4. Accept the invitation to join the [Campuswire](https://campuswire.com/) Discussion Forum for 432 and answer the poll question.
 5. Buy Jeff Leek's [How to be a Modern Scientist](https://leanpub.com/modernscientist) and read it by the end of January.
 6. Get started installing or updating the [software](https://thomaselove.github.io/432-2025/software.html) you need for the course.
 7. Get started on [Lab 1](https://thomaselove.github.io/432-2025/lab1.html), due Wednesday 2025-01-22 at Noon.
