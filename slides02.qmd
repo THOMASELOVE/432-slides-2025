@@ -78,7 +78,7 @@ Variable | Source | Description
 `hospital` | HUQ | HUQ071 = Yes or No
 `mentalh` | HUQ | HUQ090 = Yes or No
 
-## Variable Descriptions (without SEQN) {.smaller}
+## Variable Descriptions {.smaller}
 
 Variable | Description (n = 1982) 
 ------------:|:----------------------------------------------------------
@@ -243,7 +243,7 @@ ggplot(nh1982, aes(x = factor(hospital), y = sbp3)) +
 
 ## Independent Samples: Comparing Means
 
-Want a 90% confidence interval for the difference in means of SBP3 for those hospitalized - those not.
+Want a 95% confidence interval for the difference in means of SBP3 for those hospitalized - those not.
 
 -   Pooled t-based approach (equivalent to linear model) assumes Normality and equal population variances
 -   Welch t-based approach assumes Normality only
@@ -450,6 +450,8 @@ model_parameters(m2, ci = 0.9)
 ## Compare Coefficients: `m1` and `m2`
 
 ```{r}
+#| echo: true
+
 compare_models(m1, m2)
 ```
 
@@ -503,7 +505,7 @@ bind_rows(augment(m1, newdata = new_person),
 
 ## Lab 1 Question 1
 
-I provide some County Health Rankings data for 30 variables and 2054 counties included in the CHR 2024 report. You will filter the data down to the 88 counties in Ohio, and check for missing values.
+I provide some County Health Rankings data for 30 variables and 3054 counties included in the CHR 2024 report. You will filter the data down to the 88 counties in Ohio, and check for missing values.
 
 Then you will create a visualization involving information from three different variables (from a list of 15) using R and Quarto.
 
