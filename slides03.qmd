@@ -21,7 +21,7 @@ format:
     - ANOVA: Incorporating an interaction between factors
     - ANCOVA: Incorporating a quantitative covariate
 - Regression Diagnostics via `check_model()`
-- Validating / evaluating results with `yardstick`
+- Validating / evaluating results in a test sample
 
 ### Appendix (see @sec-appendix)
 
