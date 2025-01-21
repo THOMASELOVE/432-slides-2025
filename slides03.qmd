@@ -615,7 +615,7 @@ tidy(fit4, conf.int = TRUE, conf.level = 0.90) |>
 anova(fit3, fit4)
 ```
 
-## Checking model `fit3` (*n* = 670)
+## Checking model `fit4` (*n* = 670)
 
 ```{r}
 #| echo: true
