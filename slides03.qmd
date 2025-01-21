@@ -157,8 +157,8 @@ The `df_stats()` function comes from the `mosaic` package, and can be used to ap
 2. Predict `bmi` using `exer_any` and `health`
     - (`fit1`): without an interaction between the predictors
     - (`fit2`): and then with an interaction term
-3. (`fit3`): Then add in our (centered) covariate, `fruit_c`.
-4. (`fit4`): Use a quadratic polynomial in `fruit_c`.
+3. (`fit3`): Add in our (centered) covariate, `fruit_c` to `fit1`
+4. (`fit4`): Add in our (centered) covariate, `fruit_c` to `fit2`
 5. Assess all four models in training and testing samples. 
 
 ## Splitting the Sample
@@ -187,8 +187,8 @@ c(nrow(smt_im), nrow(train_smt_im), nrow(test_smt_im))
 - Predict `bmi` using `exer_any` and `health`
     - (`fit1`): without an interaction between the predictors
     - (`fit2`): and then with an interaction term
-- (`fit3`): Then add in our (centered) covariate, `fruit_c`.
-- (`fit4`): Use a quadratic polynomial in `fruit_c`.
+    - (`fit3`): Add in our (centered) covariate, `fruit_c` to `fit1`
+    - (`fit4`): Add in our (centered) covariate, `fruit_c` to `fit2`
 
 ## Tukey's ladder of power transformations
 
