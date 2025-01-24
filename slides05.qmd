@@ -1,0 +1,658 @@
+---
+title: "432 Class 05"
+author: Thomas E. Love, Ph.D.
+date: "2025-01-28"
+format:
+  revealjs: 
+    theme: simple
+    embed-resources: true
+    self-contained: true
+    slide-number: true
+    footnotes-hover: true
+    preview-links: auto
+    date-format: iso
+    logo: 432-2025-pic.png
+    footer: "432 Class 05 | 2025-01-28 | <https://thomaselove.github.io/432-2025/>"
+---
+
+## Today's Agenda
+
+- The HELP study
+- Using tools from `rms` to fit:
+  - linear models with `ols()`
+  - logistic models with `lrm()`
+
+## Today's R Setup
+
+```{r}
+#| echo: true
+#| message: false
+knitr::opts_chunk$set(comment = NA)
+
+library(janitor)
+library(naniar)
+library(broom); library(gt); library(patchwork)
+
+library(haven)             ## for zapping labels
+library(mosaic)            ## auto-loads mosaicData - data source
+library(GGally)            ## for scatterplot matrix
+library(rsample)
+library(yardstick)
+
+library(rms)               ## auto-loads Hmisc
+library(easystats)
+library(tidyverse)
+
+theme_set(theme_bw()) 
+```
+
+
+# Data from the HELP study
+
+## New Data (The HELP study)
+
+Today's main data set comes from the Health Evaluation and Linkage to Primary Care trial, and is stored as `HELPrct` in the `mosaicData` package. 
+
+HELP was a clinical trial of adult inpatients recruited from a detoxification unit. Patients with no primary care physician were randomized to receive a multidisciplinary assessment and a brief motivational intervention or usual care, with the goal of linking them to primary medical care. 
+
+## Key Variables for Today {.smaller}
+
+Variable | Description
+-----: | :----------------------------------------------
+`id` | subject identifier (note: $n$ = 453 subjects)
+`cesd` | Center for Epidemiologic Studies Depression measure (scale is 0-60; higher scores indicate more depressive symptoms)
+`age` | subject age (in years)
+`sex` | female (n = 107) or male (n = 346)
+`subst` | primary substance of abuse (alcohol, cocaine or heroin)
+`mcs` | SF-36 Mental Component Score (lower = worse status)
+`pcs` | SF-36 Physical Component Score (lower = worse status)
+`pss_fr` | perceived social support by friends (higher = more support)
+
+- All measures from baseline during the subjects' detoxification stay.
+- More data and details at <https://nhorton.people.amherst.edu/help/>.
+
+## `help_rct` data load
+
+```{r}
+#| echo: true
+help_rct <- tibble(mosaicData::HELPrct) |>
+  select(id, cesd, age, sex, subst = substance, mcs, pcs, pss_fr) |>
+  mutate(across(where(is.character), as_factor)) |>
+  mutate(id = as.character(id))
+
+help_rct
+```
+
+## What the data look like in `help_rct`
+
+Note the labels.
+
+```{r}
+#| echo: true
+str(help_rct)
+```
+
+## Getting rid of the labels
+
+Suppose I don't want the labels for some reason...
+
+```{r}
+#| echo: true
+help1 <- help_rct |> zap_label()
+data_codebook(help1 |> select(-id))
+```
+
+## Quantitative Summaries
+
+```{r}
+#| echo: true
+df_stats(~ cesd + age + mcs + pcs + pss_fr, data = help1) |>
+  gt() |> 
+  fmt_number(min:max, decimals = 1) |>
+  fmt_number(mean:sd, decimals = 2) |> 
+  tab_options(table.font.size = 24) |>
+  opt_stylize(style = 1, color = "blue")
+```
+
+
+## `help1` categorical variables
+
+```{r}
+#| echo: true
+
+help1 |> tabyl(sex, subst) |> 
+    adorn_totals(where = c("row", "col")) |>
+    adorn_percentages(denominator = "row") |>
+    adorn_pct_formatting() |>
+    adorn_ns(position = "front") |>
+    adorn_title(placement = "combined") |>
+  gt() |> tab_options(table.font.size = 24) |>
+  opt_stylize(style = 2, color = "green")
+```
+
+## Our quantitative outcome
+
+- The CES-D is a 20-item measure that asks people to rate how often over the past week they experienced symptoms associated with depression, such as restless sleep, poor appetite, and feeling lonely. 
+    - Each item is rated on a 0-3 scale, and then summed, so possible scores range from 0 to 60.
+    - Higher scores indicate more symptoms (or more frequent symptoms.)
+- A version of the CES-D scale is available [here as a PDF](https://www.apa.org/depression-guideline/epidemiologic-studies-scale.pdf).
+
+## A cutoff for CES-D: Our binary outcome
+
+- Scores of 16 or higher on the CES-D scale are sometimes taken to indicate that a person is at risk for clinical depression.
+
+```{r}
+#| echo: true
+help1 <- help1 |> mutate(cesd_hi = factor(as.numeric(cesd >= 16)))
+
+help1 |> tabyl(cesd_hi) |> adorn_pct_formatting()
+```
+
+## Quantitative Outcome (CES-D)
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+p1 <- ggplot(help1, aes(sample = cesd)) +
+  geom_qq(col = "slateblue") + geom_qq_line(col = "red") + 
+  theme(aspect.ratio = 1) +
+    labs(y = "Sorted CES-D Scores", 
+         x = "Standard Normal Distribution")
+
+bw = 5 # I tried a couple of things - this worked best for me with these data
+
+p2 <- ggplot(help1, aes(x = cesd)) +
+  geom_histogram(binwidth = bw, fill = "slateblue", col = "gold") +
+  stat_function(fun = function(x) 
+    dnorm(x, mean = mean(help1$cesd), sd = sd(help1$cesd)) * 
+      length(help1$cesd) * bw,
+    geom = "area", alpha = 0.5, fill = "thistle", col = "red") + 
+  labs(y = "Number of Subjects", x = "CES-D Score")
+
+p3 <- ggplot(help1, aes(x = cesd, y = "")) +
+  geom_violin(fill = "slateblue") +
+  geom_boxplot(width = 0.3, col = "gold", notch = TRUE, 
+               outlier.color = "slateblue") +
+  stat_summary(fun = "mean", geom = "point", col = "red") +
+  labs(x = "CES-D Score", y = "")
+
+p1 + (p2 / p3 + plot_layout(heights = c(4,1))) +
+  plot_annotation(title = "CES-D Depression Scores from help1 data",
+       subtitle = "Higher CES-D scores indicate more severe depressive symptoms",
+       caption = "n = 453, no missing data")
+```
+
+
+## Describing our outcome, CES-D (1/2)
+
+```{r}
+#| echo: true
+describe(help1$cesd)  ## describe comes from the Hmisc package
+```
+
+- `Info` = variable's information, between 0 and 1: the higher the `Info`, the more continuous the variable is (the fewer ties there are.)
+- `pMedian` = Hodges-Lehman one-sample estimator of the pseudo-median. Median of all possible pairs of values.
+
+## Describing our outcome, CES-D (2/2)
+
+```{r}
+#| echo: true
+describe(help1$cesd)
+```
+
+- `Gmd` = Gini's mean difference, a robust measure of variation. If you select two subjects at random many times, the mean `cesd` difference will be 14.23 points.
+
+More on the `Hmisc` package and `describe()` at [Frank Harrell's website](https://hbiostat.org/r/hmisc/)
+
+## The `easystats` approach
+
+```{r}
+#| echo: true
+describe_distribution(help1$cesd, iqr = FALSE, range = FALSE, ci = 0.90)
+
+describe_distribution(help1$cesd, 
+                      centrality = "median", iqr = TRUE, quartiles = FALSE)
+```
+
+See [this link at the datawizard package](https://easystats.github.io/datawizard/reference/describe_distribution.html) for more
+
+## Scatterplot Matrix (code)
+
+```{r}
+#| eval: false
+#| echo: true
+temp <- help1 |>
+    select(age, mcs, pcs, pss_fr, sex, subst, cesd)
+
+ggpairs(temp)  ## ggpairs from the GGally package
+```
+
+We place the outcome (`cesd`) last (result on next slide.)
+
+### Saving the Data Set
+
+```{r}
+#| echo: true
+write_rds(help1, "c05/data/help1.Rds")
+```
+
+## Scatterplot Matrix (result)
+
+```{r}
+temp <- help1 |>
+    select(age, mcs, pcs, pss_fr, sex, subst, cesd)
+
+ggpairs(temp)  ## ggpairs from the GGally package
+```
+
+# Using `ols()` to fit a linear regression model
+
+## Fitting using `ols()`
+
+The `ols` function stands for ordinary least squares and comes from the `rms` package, by Frank Harrell and colleagues. Any model fit with `lm` can also be fit with `ols`.
+
+- To predict `var_y` using `var_x` from the `my_tibble` data, we would use the following syntax:
+
+```{r}
+#| eval: false
+#| echo: true
+dd <- datadist(my_tibble)
+options(datadist = "dd")
+
+model_name <- ols(var_y ~ var_x, data = my_tibble,
+                  x = TRUE, y = TRUE)
+```
+
+This leaves a few questions...
+
+## What's the `datadist` stuff doing?
+
+Before fitting an `ols` model to data from `my_tibble`, use:
+
+```{r}
+#| echo: true
+#| eval: false
+dd <- datadist(my_tibble)
+options(datadist = "dd")
+```
+
+> Run (the datadist code above) once before any models are fitted, storing the distribution summaries for all potential variables. Adjustment values are 0 for binary variables, the most frequent category (or optionally the first category level) for categorical (factor) variables, the middle level for ordered factor variables, and medians for continuous variables. (excerpt from `datadist` documentation)
+
+## Why use `x = TRUE, y = TRUE`?
+
+Once we've set up the summaries with `datadist`, we fit a model:
+
+```{r}
+#| eval: false
+#| echo: true
+model_name <- ols(var_y ~ var_x, data = my_tibble,
+                  x = TRUE, y = TRUE)
+```
+
+- `ols` stores additional information beyond what `lm` does
+- `x = TRUE` and `y = TRUE` save even more expanded information for building plots and summarizing fit. 
+- The defaults are `x = FALSE, y = FALSE`, but in 432, we'll want them saved.
+
+## Using `ols` to fit a model
+
+Let's try to predict our outcome (`cesd`) using `mcs` and `subst`
+
+- Start with setting up the `datadist`
+- Then fit the model, including `x = TRUE, y = TRUE`
+
+```{r}
+#| echo: true
+
+dd <- datadist(help1)
+options(datadist = "dd")
+
+mod1 <- ols(cesd ~ mcs + subst, data = help1,
+                 x = TRUE, y = TRUE)
+```
+
+## Contents of `mod1`?
+
+```{r}
+#| echo: true
+
+mod1
+```
+
+## New elements in `ols`
+
+For our `mod1`,
+
+- Model Likelihood Ratio test output includes `LR chi2 = 295.10, d.f. = 3, Pr(> chi2) = 0.0000`
+
+The log of the likelihood ratio, multiplied by -2, yields a test against a $\chi^2$ distribution. Interpret this as a goodness-of-fit test that compares `mod1` to a null model with only an intercept term. In `ols` this is similar to a global (ANOVA) F test.
+
+## New elements in `ols`
+
+Under the $R^2$ values, we have `g = 9.827`.
+
+- This is the $g$-index, based on Gini's mean difference. If you randomly selected two of the subjects in the model, the average difference in predicted `cesd` will be 9.827. 
+- This can be compared to the Gini's mean difference for the original `cesd` values, from `describe`, which was `Gmd = 14.23`.
+
+## Validate summaries from an `ols` fit
+
+- Can we validate summary statistics by resampling? 
+
+```{r}
+#| echo: true
+set.seed(432)
+validate(mod1)
+```
+
+- The data used to fit the model provide an over-optimistic view of the quality of fit.
+- We're interested here in assessing how well the model might work in new data, using a resampling approach.
+
+## Resampling Validation for $R^2$ {.smaller}
+
+-- | index.orig | training | test | optimism | index.corrected | n
+---: | ---: | ---: | ---: | ---: | ---: | ---: 
+$R^2$ | 0.4787 | 0.4874 | 0.4737 | 0.0137 | 0.4650 | 40
+
+- `index.orig` for $R^2$ is 0.4787. That's what we get from the data used to fit `mod1`.
+- With `validate` we create 40 (by default) bootstrapped resamples of the data and then split each of those into training and test samples.
+    - For each of the 40 splits, R refits the model (same predictors) in the `training` sample to obtain $R^2$: mean across 40 splits is 0.4874
+    - Check each model in its `test` sample: average $R^2$ was 0.4737
+- `optimism` = `training` result - `test` result = 0.0137
+- `index.corrected` = `index.orig` - `optimism` = 0.4650
+
+While our *nominal* $R^2$ is 0.4787; correcting for optimism yields *validated* $R^2$ of 0.4650, so we conclude that $R^2$ = 0.4650 better estimates how `mod1` will perform in new data.
+
+## Resampling Validation for MS(Error) {.smaller}
+
+-- | index.orig | training | test | optimism | index.corrected | n
+---: | ---: | ---: | ---: | ---: | ---: | ---: 
+MSE | 81.4606 | 79.7851 | 82.2361 | -2.4510 | 83.9116 | 40
+
+- `index.orig` for MSE = 81.4606. That's what we get from the data used to fit `mod1`.
+- For each of the 40 splits, R refits the model (same predictors) in the `training` sample to obtain MSE: mean across 40 splits is 79.7851
+- Check each model in its `test` sample: average MSE was 82.2361
+- `optimism` = `training` result - `test` result = -2.4510
+- `index.corrected` = `index.orig` - `optimism` = 83.9116
+
+While our *nominal* MSE is 81.4606 (so RMSE = $\sqrt{81.4606} = 9.03$); correcting for optimism yields *validated* MSE of 83.9116 and validated RMSE = $\sqrt{83.9116} = 9.16$.
+
+
+## ANOVA for `mod1` fit by `ols` {.smaller}
+
+```{r}
+#| echo: true
+anova(mod1)
+```
+
+- This adds a line for the complete regression model (both terms) which can be helpful, but is otherwise the same as `anova()` after a fit using `lm()`.
+- As with `lm`, this is a sequential ANOVA table, so if we had included `subst` in the model first, we'd get a different SS, MS, F and p for `mcs` and `subst`, but the same `REGRESSION` and `ERROR` results.
+
+## summary for `mod1` fit by `ols` {.smaller}
+
+```{r}
+#| echo: true
+summary(mod1, conf.int = 0.90)
+```
+
+- How do we interpret the `subst` effects estimated by this model?
+    - Effect of `subst` being `cocaine` instead of `alcohol` on `ces_d` is `-3.44` assuming no change in `mcs`, with 90% CI (-5.10, -1.79).
+    - Effect of `subst` being `heroin` instead of `alcohol` on `ces_d` is `-1.78` assuming no change in `mcs`, with 90% CI (-3.54, -0.02).
+
+But what about the `mcs` effect?
+
+## summary for `mod1` fit by `ols` {.smaller}
+
+```{r}
+#| echo: true
+summary(mod1, conf.int = 0.90)
+```
+
+- Effect of `mcs`: `-12.66` is the estimated change in `cesd` associated with a move from `mcs` = 21.68 (see `Low` value) to `mcs` = 40.94 (the `High` value) assuming no change in `subst`.
+- `ols` chooses the `Low` and `High` values from the interquartile range.
+
+```{r}
+#| echo: true
+quantile(help1$mcs, c(0.25, 0.75))
+```
+
+## Plot the summary to see effect sizes {.smaller}
+
+- Goal: plot effect sizes for similar moves within predictor distributions.
+
+```{r}
+#| fig-height: 3
+#| echo: true
+plot(summary(mod1))
+```
+
+
+- The triangles indicate the point estimate, augmented with confidence interval bars.
+    - The 90% confidence intervals are plotted with the thickest bars.
+    - The 95% CIs are then shown with thinner, more transparent bars.
+    - Finally, the 99% CIs are shown as the longest, thinnest bars.
+
+## Plot the individual effects? {.smaller}
+
+```{r}
+#| fig-height: 3.5
+#| echo: true
+ggplot(Predict(mod1, conf.int = 0.95), layout = c(1,2))
+```
+
+- At left, impact of changing `mcs` on `cesd` holding `subst` at its baseline (alcohol).
+- At right, impact of changing `subst` on `cesd` holding `mcs` at its median (`r median(help1$mcs)`).
+- Defaults: add 95% CI bands and layout tries for a square.
+
+## Build a nomogram for the `ols` fit
+
+```{r}
+#| echo: true
+#| fig-height: 5
+plot(nomogram(mod1))
+```
+
+## Nomograms {.smaller}
+
+For complex models (this model isn't actually very complex) it can be helpful to have a tool that will help you see the modeled effects in terms of their impact on the predicted outcome.
+
+A *nomogram* is an established graphical tool for doing this.
+
+- Find the value of each predictor on its provided line, and identify the "points" for that predictor by drawing a vertical line up to the "Points".
+- Then sum up the points over all predictors to obtain "Total Points".
+- Draw a vertical line down from the "Total Points" to the "Linear Predictor" to get the predicted `cesd` for this subject.
+
+## Using the nomogram for the `mod1` fit
+
+Predicted `cesd` if `mcs` = 35 and `subst` = heroin?
+
+```{r}
+#| fig-height: 6
+plot(nomogram(mod1))
+```
+
+## Actual Prediction for this subject...
+
+- The `predict` function for our `ols` fit provides fitted values.
+
+```{r}
+#| echo: true
+predict(mod1, newdata = tibble(mcs = 35, subst = "heroin"))
+```
+
+
+# Using `lrm()` to fit a linear regression model
+
+## Fitting using `lrm()`
+
+The `lrm()` function stands for logistic regression model and also comes from the `rms` package. Let's predict our binary outcome (`cesd_hi`) using `mcs` and `subst`.
+
+- Start with setting up the `datadist` Then fit model, including `x = TRUE, y = TRUE`
+
+```{r}
+#| echo: true
+
+dd <- datadist(help1)
+options(datadist = "dd")
+
+mod2 <- lrm(cesd_hi ~ mcs + subst, data = help1, x = TRUE, y = TRUE)
+```
+
+## Contents of `mod2`?
+
+```{r}
+#| echo: true
+
+mod2
+```
+
+## New elements in `lrm`
+
+For our `mod2`,
+
+- Model Likelihood Ratio test output includes `LR chi2 = 134.24, d.f. = 3, Pr(> chi2) <0.0001`
+
+Again, the log of the likelihood ratio, multiplied by -2, yields a test against a $\chi^2$ distribution. Interpret this as a goodness-of-fit test that compares `mod2` to a null model with only an intercept term.
+
+## Discrimination Indexes in `lrm()`
+
+`R2 = 0.533, R2(3,453) = 0.252, R2(3,124) = 0.653, Brier = 0.056`
+
+The `R2` value is the *Nagelkerke* $R^2$, which is another pseudo-$R^2$ measure that provides a correction to the Cox-Snell $R^2$ so that the maximum value is 1.
+
+- Other $R^2$s [are detailed here](https://hbiostat.org/bib/r2)
+
+## Discrimination Indexes in `lrm()`
+
+`R2 = 0.533, R2(3,453) = 0.252, R2(3,124) = 0.653, Brier = 0.056`
+
+The `Brier` score is the mean squared error between predictions and actual (1/0) observations. The lower the score (closer to 0), the better the model's predictions are calibrated. It's not really useful on its own, but helps when comparing models.
+
+## Rank Discrimination Indexes in `lrm()`
+
+`C = 0.938, Dxy = 0.875, gamma = 0.875, tau-a = 0.160`
+
+- C is the C statistic, the area under the ROC curve
+- Dxy is Somers' d, and note that C = 0.5 + (Dxy/2)
+- gamma is the Goodman-Kruskal $\gamma$ statistic
+- tau-a is the Kendall $\tau$ statistic (version a)
+
+## Validate summaries from an `lrm` fit
+
+- Can we validate summary statistics by resampling? 
+
+```{r}
+#| echo: true
+set.seed(432432)
+validate(mod2)
+```
+
+## Resampling Validation after `lrm()` {.smaller}
+
+-- | index.orig | training | test | optimism | index.corrected | n
+---: | ---: | ---: | ---: | ---: | ---: | ---: 
+Dxy | 0.8751 | 0.8825 | 0.8707 | 0.0118 | 0.8634 | 40
+R2 | 0.5326 | 0.5421 | 0.5247 | 0.0174 | 0.5152 | 40
+
+- Dxy = Somers' d, and the area under the ROC curve is C = 0.5 + (Dxy/2)
+- Our original Dxy = 0.8751, implying C = 0.9376
+- Our validated Dxy = 0.8634, so validated C = 0.5 + (0.8634/2) = 0.9317
+- While our *nominal* $R^2$ is 0.5326; correcting for optimism yields *validated* $R^2$ of 0.5152.
+
+## ANOVA for `mod2` fit by `lrm`
+
+```{r}
+#| echo: true
+anova(mod2)
+```
+
+- Again, this is a sequential ANOVA table, so if we had included `subst` in the model first, we'd get a different Chi-Square, and p for `mcs` and `subst`, but the same `TOTAL` result.
+
+## summary for `mod2` fit by `lrm`
+
+```{r}
+#| echo: true
+summary(mod2, conf.int = 0.90)
+```
+
+## summary for `mod2` fit by `lrm`
+
+```
+Factor            Low   High  Diff.   Effect   S.E. Lower 0.9 Upper 0.9
+ mcs           21.676 40.941 19.266 -3.46040 0.4527 -4.2050  -2.71580
+  Odds Ratio   21.676 40.941 19.266  0.03142     NA  0.0149   0.06615
+```
+
+- Odds of `cesd_hi` are 0.03 times as high for a subject with `mcs` = 40.94 (`High`) as compared to a subject with `mcs` = 21.68 (`Low`) assuming no change in `subst`.
+- `ols` chooses the `Low` and `High` values from the interquartile range.
+
+## summary for `mod2` fit by `lrm` 
+
+```
+Factor                  Low High  Diff Effect   S.E. Lower 0.9 Upper 0.9
+ subst - cocaine:alcohol  1    2  NA  -1.5025 0.4811 -2.2939   -0.71107
+  Odds Ratio              1    2  NA   0.2226     NA  0.1009    0.49112
+ subst - heroin:alcohol   1    3  NA  -1.2695 0.5979 -2.2529   -0.28607
+  Odds Ratio              1    3  NA   0.2810     NA  0.1051    0.75121
+```
+- Effect of `subst` being `cocaine` instead of `alcohol` on `cesd_hi` is an Odds Ratio of 0.22 (0.10, 0.49), assuming no change in `mcs`.
+- Effect of `subst` being `heroin` instead of `alcohol` on `cesd_hi` is an Odds Ratio of 0.28 (0.11, 0.75), assuming no change in `mcs`.
+
+## Plot the summary to see effect sizes
+
+- Goal: plot effect sizes for similar moves within predictor distributions.
+
+```{r}
+#| fig-height: 3
+#| echo: true
+plot(summary(mod2))
+```
+## Plot the individual effects? {.smaller}
+
+```{r}
+#| fig-height: 3.5
+#| echo: true
+ggplot(Predict(mod2, conf.int = 0.95), layout = c(1,2))
+```
+
+- At left, impact of changing `mcs` on `cesd` holding `subst` at its baseline (alcohol).
+- At right, impact of changing `subst` on `cesd` holding `mcs` at its median (`r median(help1$mcs)`).
+- Defaults: add 95% CI bands and layout tries for a square.
+
+## Build a nomogram for the `ols` fit
+
+```{r}
+#| echo: true
+#| fig-height: 5
+plot(nomogram(mod2, fun = plogis, funlabel = 'Pr(cesd_hi = 1)'))
+```
+
+## Making a Prediction...
+
+- The `predict` function for our `lrm()` fit provides fitted values, either on the log odds scale...
+
+```{r}
+#| echo: true
+predict(mod2, newdata = tibble(mcs = 35, subst = "heroin"), type = "lp")
+```
+
+- or on the probability scale ...
+
+```{r}
+#| echo: true
+predict(mod2, newdata = tibble(mcs = 35, subst = "heroin"), type = "fitted")
+```
+
+## Getting more good stuff
+
+- Anything you can fit with `ols()` can also be fit with `lm()`, so you have access to everything in `lm()` as well, like `check_model()`, etc.
+
+- Same goes for `glm(..., family = binomial(link = "logit"))` and `lrm()`.
+
+## Coming Soon
+
+- Fitting more complex linear and logistic regression models
+  - Adding non-linearity in the predictors through interactions, polynomials and splines
+  - Spending degrees of freedom and the Spearman $\rho^2$ plot
+
+
+
