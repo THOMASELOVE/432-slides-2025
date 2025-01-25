@@ -1,0 +1,670 @@
+---
+title: "432 Class 06"
+author: Thomas E. Love, Ph.D.
+date: "2025-01-30"
+format:
+  revealjs: 
+    theme: simple
+    embed-resources: true
+    self-contained: true
+    slide-number: true
+    footnotes-hover: true
+    preview-links: auto
+    date-format: iso
+    logo: 432-2025-pic.png
+    footer: "432 Class 06 | 2025-01-30 | <https://thomaselove.github.io/432-2025/>"
+---
+
+## Today's Agenda
+
+- The HELP trial, again
+- Incorporating Non-Linearity into our models
+  - Polynomial terms
+  - Restricted Cubic Splines
+
+## Today's R Setup
+
+```{r}
+#| echo: true
+#| message: false
+knitr::opts_chunk$set(comment = NA)
+
+library(janitor)
+library(naniar)
+library(broom); library(gt); library(patchwork)
+
+library(haven)             ## for zapping labels
+library(mosaic)            ## auto-loads mosaicData - data source
+
+library(rms)               ## auto-loads Hmisc
+library(easystats)
+library(tidyverse)
+
+theme_set(theme_bw()) 
+```
+
+
+## Reminders: The HELP Study
+
+Health Evaluation and Linkage to Primary Care (HELP) was a clinical trial of adult inpatients recruited from a detoxification unit. 
+
+- We have baseline data for each subject on several variables, including two outcomes:
+
+Variable | Description
+-----: | :----------------------------------------------
+`cesd` | Center for Epidemiologic Studies-Depression
+`cesd_hi` | `cesd` above 15 (indicates high risk)
+
+## Potential Predictors in `help1`
+
+Variable | Description
+-----: | :----------------------------------------------
+`age` | subject age (in years)
+`sex` | female (n = 107) or male (n = 346)
+`subst` | substance abused (alcohol, cocaine, heroin)
+`mcs` | SF-36 Mental Component Score 
+`pcs` | SF-36 Physical Component Score
+`pss_fr` | perceived social support by friends
+
+- See <https://nhorton.people.amherst.edu/help/> for more.
+
+## `help1` data load
+
+```{r}
+#| echo: true
+help1 <- tibble(mosaicData::HELPrct) |>
+  select(id, cesd, age, sex, subst = substance, mcs, pcs, pss_fr) |>
+  zap_label() |>
+  mutate(across(where(is.character), as_factor), 
+         id = as.character(id), 
+         cesd_hi = factor(as.numeric(cesd >= 16)))
+
+dim(help1); n_miss(help1)
+
+head(help1, 5)
+```
+
+## Can we use `pcs` to predict `cesd`?
+
+Does the `loess` smooth match up well with the linear fit?
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+ggplot(help1, aes(x = pcs, y = cesd)) + 
+    geom_point(size = 2) +
+    geom_smooth(method = "loess", formula = y ~ x, se = FALSE, col = "blue") +
+    geom_smooth(method = "lm", formula = y ~ x, se = FALSE, col = "red") + 
+    labs(title = "Linear and Loess Fits for `cesd` vs. `pcs`")
+```
+
+## A simple linear regression: `fitA`
+
+```{r}
+#| echo: true
+
+dd <- datadist(help1); options(datadist = "dd")
+
+fitA <- ols(cesd ~ pcs, data = help1, x = TRUE, y = TRUE)
+
+fitA$coefficients
+```
+
+## Our simple linear regression
+
+```{r}
+fitA
+```
+
+## Effect Sizes in `fitA`
+
+```{r}
+plot(summary(fitA))
+```
+
+
+---
+
+```{r}
+#| echo: true
+ggplot(Predict(fitA, conf.int = 0.90))
+```
+
+---
+
+```{r}
+#| echo: true
+#| fig-height: 5
+plot(nomogram(fitA))
+```
+
+
+## Using `ols` to fit a larger model
+
+```{r}
+#| echo: true
+
+dd <- datadist(help1)
+options(datadist = "dd")
+
+fitB <- ols(cesd ~ pcs + subst + pss_fr + sex, 
+            data = help1, x = TRUE, y = TRUE)
+
+fitB$coefficients
+```
+
+- Can use `model_parameters()` and `model_performance()` with `fitB` or other `ols()` fits.
+- We could also fit this model, naturally, using `lm()` instead.
+
+## Contents of `fitB`?
+
+```{r}
+#| echo: true
+
+fitB
+```
+
+## Effect Sizes in `fitB`
+
+```{r}
+plot(summary(fitB))
+```
+
+---
+
+```{r}
+#| echo: true
+ggplot(Predict(fitB, conf.int = 0.90))
+```
+
+
+## A Nomogram for `fitB`
+
+```{r}
+#| echo: true
+#| fig-height: 5
+plot(nomogram(fitB, abbrev = TRUE))
+```
+
+
+## Non-Linear Terms
+
+In building a linear regression model, we're most often going to be thinking about:
+
+- for quantitative predictors, some curvature...
+    - perhaps polynomial terms 
+    - but more often restricted cubic splines
+- for any predictors, possible interactions
+    - between categorical predictors 
+    - between categorical and quantitative predictors
+    - between quantitative predictors
+
+# Non-Linear Terms: Polynomials
+
+## Polynomial Regression
+
+A polynomial in the variable `x` of degree D is a linear combination of the powers of `x` up to D. For example:
+
+- Linear: $y = \beta_0 + \beta_1 x$
+- Quadratic: $y = \beta_0 + \beta_1 x + \beta_2 x^2$
+- Cubic: $y = \beta_0 + \beta_1 x + \beta_2 x^2 + \beta_3 x^3$
+- Quartic: $y = \beta_0 + \beta_1 x + \beta_2 x^2 + \beta_3 x^3 + \beta_4 x^4$
+
+Fitting such a model creates a **polynomial regression**.
+
+## Plotting the Polynomials
+
+```{r}
+#| echo: true
+#| output-location: slide
+p1 <- ggplot(help1, aes(x = pcs, y = cesd)) +
+    geom_point(alpha = 0.3) + 
+    geom_smooth(formula = y ~ x, method = "lm", 
+                col = "red", se = FALSE) + 
+    labs(title = "Linear Fit")
+
+p2 <- ggplot(help1, aes(x = pcs, y = cesd)) +
+    geom_point(alpha = 0.3) + 
+    geom_smooth(formula = y ~ poly(x, 2), method = "lm",
+                col = "blue", se = FALSE) +
+    labs(title = "2nd order Polynomial")
+
+p3 <- ggplot(help1, aes(x = pcs, y = cesd)) +
+    geom_point(alpha = 0.3) + 
+    geom_smooth(formula = y ~ poly(x, 3), method = "lm",
+                col = "purple", se = FALSE) +
+    labs(title = "3rd order Polynomial")
+
+p1 + p2 + p3
+```
+
+## Adding a polynomial in `pcs`
+
+Can we predict `cesd` with a polynomial in `pcs`?
+
+Yes, with `ols()` and `pol()`, as follows:
+
+```
+fitA <- ols(cesd ~ pcs, data = help1, x = TRUE, y = TRUE)
+fitA_2 <- ols(cesd ~ pol(pcs,2), data = help1, x = TRUE, y = TRUE)
+fitA_3 <- ols(cesd ~ pol(pcs,3), data = help1, x = TRUE, y = TRUE)
+```
+
+With `lm()`, we use `poly()` instead of `pol()`...
+
+```
+lmfitA <- lm(cesd ~ pcs, data = help1)
+lmfitA_2 <- lm(cesd ~ poly(pcs,2), data = help1)
+lmfitA_3 <- lm(cesd ~ poly(pcs,3), data = help1)
+```
+
+## Raw vs. Orthogonal Polynomials
+
+Predict `cesd` using `pcs` with a "raw polynomial of degree 2."
+
+```{r}
+#| echo: true
+(temp1 <- lm(cesd ~ pcs + I(pcs^2), data = help1))
+```
+
+Predicted `cesd` for `pcs` = 40 is 
+
+```
+cesd = 46.400713 - 0.213627 (40) - 0.001356 (40^2)
+     = 46.400713 - 8.545080 - 2.169600
+     = 35.686
+```
+
+## Does the raw polynomial match our expectations?
+
+```{r}
+#| echo: true
+temp1 <- lm(cesd ~ pcs + I(pcs^2), data = help1)
+
+augment(temp1, newdata = tibble(pcs = 40)) |> 
+  gt() |> tab_options(table.font.size = 24)
+```
+
+This matches our "by hand" calculation.
+
+- But it turns out most regression models use *orthogonal* rather than raw polynomials...
+
+## Fitting an Orthogonal Polynomial
+
+Predict `cesd` using `pcs` with an *orthogonal* polynomial of degree 2.
+
+```{r}
+#| echo: true
+(temp2 <- lm(cesd ~ poly(pcs,2), data = help1))
+```
+
+This looks very different from our previous version of the model. What happens when we make a prediction, though?
+
+## Orthogonal Polynomial Model Prediction
+
+Remember that in our raw polynomial model, our "by hand" and "using R" calculations each predicted `cesd` for a subject with `pcs` = 40 to be 35.686.
+
+What happens with the orthogonal polynomial model `temp2`?
+
+```{r}
+#| echo: true
+augment(temp2, newdata = data.frame(pcs = 40)) |> 
+  gt() |> tab_options(table.font.size = 24)
+```
+
+- No change in the prediction.
+
+## Fits of raw vs orthogonal polynomials
+
+```{r}
+#| echo: true
+#| output-location: slide
+temp1_aug <- augment(temp1, help1)
+temp2_aug <- augment(temp2, help1)
+
+p1 <- ggplot(temp1_aug, aes(x = pcs, y = cesd)) +
+    geom_point(alpha = 0.3) +
+    geom_line(aes(x = pcs, y = .fitted), col = "red", linewidth = 2) +
+    labs(title = "temp1: Raw fit, degree 2")
+
+p2 <- ggplot(temp2_aug, aes(x = pcs, y = cesd)) +
+    geom_point(alpha = 0.3) +
+    geom_line(aes(x = pcs, y = .fitted), col = "blue", linewidth = 2) +
+    labs(title = "temp2: Orthogonal fit, degree 2")
+
+p1 + p2 + 
+    plot_annotation(title = "Comparing Two Methods of Fitting a Quadratic Polynomial")
+```
+
+- The two models are, in fact, identical.
+
+## Why use orthogonal polynomials?
+
+- The main reason is to avoid having to include powers of our predictor that are highly collinear. 
+- Variance Inflation Factor assesses collinearity...
+
+```{r}
+#| echo: true
+rms::vif(temp1)        ## from rms package
+```
+
+- Orthogonal polynomial terms are uncorrelated...
+
+```{r}
+#| echo: true
+rms::vif(temp2)      
+```
+
+## Why orthogonal polynomials?
+
+An **orthogonal polynomial** sets up a model design matrix and then scales those columns so that each column is uncorrelated with the others. The tradeoff is that the raw polynomial is a lot easier to explain in terms of a single equation in the simplest case. 
+
+Actually, we'll often use splines instead of polynomials, which are more flexible and require less maintenance, but at the cost of pretty much requiring you to focus on visualizing their predictions rather than their equations.
+
+## `fitA` with a cubic polynomial
+
+```{r}
+#| echo: true
+dd <- datadist(help1); options(datadist = "dd")
+
+fitA_3 <- ols(cesd ~ pol(pcs,3), data = help1, x = TRUE, y = TRUE)
+
+fitA_3$coefficients
+```
+
+## Our model `fitA_3`
+
+```{r}
+#| echo: true
+
+fitA_3
+```
+
+## Effect Sizes in `fitA_3`
+
+```{r}
+plot(summary(fitA_3))
+```
+
+---
+
+```{r}
+#| echo: true
+ggplot(Predict(fitA_3, conf.int = 0.90))
+```
+
+---
+
+```{r}
+#| echo: true
+#| fig-height: 5
+plot(nomogram(fitA_3))
+```
+
+## Fitting `fitB` including a polynomial
+
+```{r}
+#| echo: true
+
+dd <- datadist(help1)
+options(datadist = "dd")
+
+fitB_3 <- ols(cesd ~ pol(pcs,3) + subst + pss_fr + sex, 
+            data = help1, x = TRUE, y = TRUE)
+
+fitB_3$coefficients
+```
+
+## Contents of `fitB_3`?
+
+```{r}
+#| echo: true
+
+fitB_3
+```
+
+## Effect Sizes in `fitB_3`
+
+```{r}
+plot(summary(fitB_3))
+```
+
+
+---
+
+```{r}
+#| echo: true
+ggplot(Predict(fitB_3, conf.int = 0.90))
+```
+
+
+## A Nomogram for `fitB_3`
+
+```{r}
+#| echo: true
+#| fig-height: 5
+plot(nomogram(fitB_3, abbrev = TRUE))
+```
+
+# Non-Linear Terms: Splines
+
+## Types of Splines
+
+- A **linear spline** is a continuous function formed by connecting points (called **knots** of the spline) by line segments.
+- A **restricted cubic spline** is a way to build highly complicated curves into a regression equation in a fairly easily structured way.
+- A restricted cubic spline is a series of polynomial functions joined together at the knots. 
+    + Such a spline gives us a way to flexibly account for non-linearity without over-fitting the model.
+
+## How complex should our spline be?
+
+Restricted cubic splines can fit many different types of non-linearities. Specifying the number of knots is all you need to do in R to get a reasonable result from a restricted cubic spline. 
+
+The most common choices are 3, 4, or 5 knots. 
+
+- 3 Knots, 2 degrees of freedom, allows the curve to "bend" once.
+- 4 Knots, 3 degrees of freedom, lets the curve "bend" twice.
+- 5 Knots, 4 degrees of freedom, lets the curve "bend" three times. 
+
+## Restricted Cubic Splines with `ols`
+
+Let's consider a restricted cubic spline model for `cesd` based on `pcs` with:
+
+- 3 knots in `fitC3`, 4 knots in `fitC4`, and 5 knots in `fitC5`
+
+```{r}
+#| echo: true
+dd <- datadist(help1)
+options(datadist = "dd")
+
+fitC3 <- ols(cesd ~ rcs(pcs, 3), 
+              data = help1, x = TRUE, y = TRUE)
+fitC4 <- ols(cesd ~ rcs(pcs, 4), 
+              data = help1, x = TRUE, y = TRUE)
+fitC5 <- ols(cesd ~ rcs(pcs, 5),
+              data = help1, x = TRUE, y = TRUE)
+```
+
+## Model `fitC3` (3-knot spline in `pcs`)
+
+```{r}
+#| echo: true
+fitC3
+```
+
+## Effect Sizes in `fitC3`
+
+```{r}
+plot(summary(fitC3))
+```
+
+
+---
+
+```{r}
+#| echo: true
+ggplot(Predict(fitC3, conf.int = 0.90))
+```
+
+
+## A Nomogram for `fitC3`
+
+```{r}
+#| echo: true
+#| fig-height: 5
+plot(nomogram(fitC3, abbrev = TRUE))
+```
+
+
+## Model `fitC4` (4-knot spline in `pcs`)
+
+```{r}
+#| echo: true
+fitC4
+```
+
+## Effect Sizes in `fitC4`
+
+```{r}
+plot(summary(fitC4))
+```
+
+
+---
+
+```{r}
+#| echo: true
+ggplot(Predict(fitC4, conf.int = 0.90))
+```
+
+
+## A Nomogram for `fitC4`
+
+```{r}
+#| echo: true
+#| fig-height: 5
+plot(nomogram(fitC4, abbrev = TRUE))
+```
+
+
+## Model `fitC5` (5-knot spline in `pcs`)
+
+```{r}
+#| echo: true
+fitC5
+```
+
+## Effect Sizes in `fitC5`
+
+```{r}
+plot(summary(fitC5))
+```
+
+
+---
+
+```{r}
+#| echo: true
+ggplot(Predict(fitC5, conf.int = 0.90))
+```
+
+
+## A Nomogram for `fitC5`
+
+```{r}
+#| echo: true
+#| fig-height: 5
+plot(nomogram(fitC5, abbrev = TRUE))
+```
+
+## Fitting `fitB` including a 5-knot RCS
+
+```{r}
+#| echo: true
+
+dd <- datadist(help1)
+options(datadist = "dd")
+
+fitB5 <- ols(cesd ~ rcs(pcs,5) + subst + pss_fr + sex, 
+            data = help1, x = TRUE, y = TRUE)
+
+fitB5$coefficients
+```
+
+## Contents of `fitB5`?
+
+```{r}
+#| echo: true
+
+fitB5
+```
+
+## Effect Sizes in `fitB5`
+
+```{r}
+plot(summary(fitB5))
+```
+
+
+---
+
+```{r}
+#| echo: true
+ggplot(Predict(fitB5, conf.int = 0.90))
+```
+
+
+## A Nomogram for `fitB5`
+
+```{r}
+#| echo: true
+#| fig-height: 5
+plot(nomogram(fitB5, abbrev = TRUE))
+```
+
+# What if you're doing a logistic regression?
+
+## Predicting Pr(CESD>15) with a spline
+
+```{r}
+#| echo: true
+
+dd <- datadist(help1)
+options(datadist = "dd")
+
+fitD5 <- lrm(cesd_hi ~ rcs(pcs,5) + subst + pss_fr + sex, 
+            data = help1, x = TRUE, y = TRUE)
+
+fitD5$coefficients
+```
+
+## Contents of `fitD5`?
+
+```{r}
+#| echo: true
+
+fitD5
+```
+
+## Effect Sizes in `fitD5`
+
+```{r}
+plot(summary(fitD5))
+```
+
+
+---
+
+```{r}
+#| echo: true
+ggplot(Predict(fitD5, conf.int = 0.90, fun = plogis))
+```
+
+
+## A Nomogram for `fitD5`
+
+```{r}
+#| echo: true
+#| fig-height: 5
+plot(nomogram(fitD5, abbrev = TRUE, fun = plogis, funlabel = "Pr(CESD > 15)"))
+```

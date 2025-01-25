@@ -606,6 +606,7 @@ Factor                  Low High  Diff Effect   S.E. Lower 0.9 Upper 0.9
 #| echo: true
 plot(summary(mod2))
 ```
+
 ## Plot the individual effects? {.smaller}
 
 ```{r}
@@ -617,6 +618,16 @@ ggplot(Predict(mod2, conf.int = 0.95), layout = c(1,2))
 - At left, impact of changing `mcs` on `cesd` holding `subst` at its baseline (alcohol).
 - At right, impact of changing `subst` on `cesd` holding `mcs` at its median (`r median(help1$mcs)`).
 - Defaults: add 95% CI bands and layout tries for a square.
+
+## Plot on probability scale? 
+
+Add `fun = plogis`.
+
+```{r}
+#| fig-height: 5
+#| echo: true
+ggplot(Predict(mod2, conf.int = 0.95, fun = plogis), layout = c(1,2))
+```
 
 ## Build a nomogram for the `ols` fit
 
