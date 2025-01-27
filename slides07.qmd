@@ -1,0 +1,591 @@
+---
+title: "432 Class 07"
+author: Thomas E. Love, Ph.D.
+date: "2025-02-04"
+format:
+  revealjs: 
+    theme: simple
+    embed-resources: true
+    self-contained: true
+    slide-number: true
+    footnotes-hover: true
+    preview-links: auto
+    date-format: iso
+    logo: 432-2025-pic.png
+    footer: "432 Class 07 | 2025-02-04 | <https://thomaselove.github.io/432-2025/>"
+---
+
+## Today's Agenda
+
+- Splines and other non-linear terms
+- Spearman's $\rho^2$ plot: exploring non-linearity
+  - Spending degrees of freedom wisely
+- Linear Regression (HELP trial again)
+  - A complex model with non-linear terms
+  - Assessing fit with `ols()` and `lm()`
+  - Calibration of the model
+  - Prediction Intervals and Confidence Intervals
+
+## Today's R Setup
+
+```{r}
+#| echo: true
+#| message: false
+knitr::opts_chunk$set(comment = NA)
+
+library(janitor)
+library(naniar)
+library(broom); library(gt); library(patchwork)
+library(haven)
+library(rms)               ## auto-loads Hmisc
+library(easystats)
+library(tidyverse)
+
+theme_set(theme_bw()) 
+```
+
+## Types of Splines
+
+- A **linear spline** is a continuous function formed by connecting points (called **knots** of the spline) by line segments.
+- A **restricted cubic spline** is a way to build highly complicated curves into a regression equation in a fairly easily structured way.
+- A restricted cubic spline is a series of polynomial functions joined together at the knots. 
+    + Such a spline gives us a way to flexibly account for non-linearity without over-fitting the model.
+
+## How complex should our spline be?
+
+Restricted cubic splines can fit many different types of non-linearities. Specifying the number of knots is all you need to do in R to get a reasonable result from a restricted cubic spline. 
+
+The most common choices are 3, 4, or 5 knots. 
+
+- 3 Knots, 2 degrees of freedom, lets the curve "bend" once.
+- 4 Knots, 3 degrees of freedom, lets the curve "bend" twice.
+- 5 Knots, 4 degrees of freedom; curve "bends" three times. 
+
+## A simulated data set
+
+```{r}
+#| echo: true
+set.seed(20250204)
+
+sim_data <- tibble(
+    x = runif(250, min = 10, max = 50),
+    y = 3*(x-30) - 0.3*(x-30)^2 + 0.05*(x-30)^3 + 
+        rnorm(250, mean = 500, sd = 70)
+)
+
+head(sim_data)
+```
+
+## The `sim_data`, plotted.
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+p1 <- ggplot(sim_data, aes(x = x, y = y)) + 
+    geom_point(alpha = 0.3) +
+    geom_smooth(method = "lm", formula = y ~ x, 
+                col = "red", se = FALSE) +
+    labs(title = "With Linear Fit")
+
+p2 <- ggplot(sim_data, aes(x = x, y = y)) + 
+    geom_point(alpha = 0.3) +
+    geom_smooth(method = "loess", formula = y ~ x, 
+                col = "blue", se = FALSE) +
+    labs(title = "With Loess Smooth")
+
+p1 + p2
+```
+
+## Fitting Non-Linear Terms with `lm`
+
+We'll fit:
+
+- a linear model
+- two models using orthogonal polynomials (`poly()`), and 
+- three models using restricted cubic splines (`rcs()`)
+
+```{r}
+#| echo: true
+sim_linear <- lm(y ~ x, data = sim_data)
+sim_poly2  <- lm(y ~ poly(x, 2), data = sim_data)
+sim_poly3  <- lm(y ~ poly(x, 3), data = sim_data)
+sim_rcs3   <- lm(y ~ rcs(x, 3), data = sim_data)
+sim_rcs4   <- lm(y ~ rcs(x, 4), data = sim_data)
+sim_rcs5   <- lm(y ~ rcs(x, 5), data = sim_data)
+```
+
+## `augment()` for our six models
+
+This will generate fitted `y` predictions and residuals, which we can use to help us plot the fits for each of the six models we've generated using the `simdata` data.
+
+```{r}
+#| echo: true
+#| message: false
+
+sim_linear_aug <- augment(sim_linear, sim_data)
+sim_poly2_aug <- augment(sim_poly2, sim_data)
+sim_poly3_aug <- augment(sim_poly3, sim_data)
+sim_rcs3_aug <- augment(sim_rcs3, sim_data)
+sim_rcs4_aug <- augment(sim_rcs4, sim_data)
+sim_rcs5_aug <- augment(sim_rcs5, sim_data)
+```
+
+## Add the Polynomial Fits
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+p1 <- ggplot(sim_data, aes(x = x, y = y)) +
+    geom_point(alpha = 0.5) +
+    geom_smooth(method = "lm", formula = y ~ x, 
+                col = "black", se = F) +
+    labs(title = "Linear Fit") 
+
+p2 <- ggplot(sim_data, aes(x = x, y = y)) +
+    geom_point(alpha = 0.5) +
+    geom_smooth(method = "loess", formula = y ~ x, 
+                col = "forestgreen", se = F) +
+    labs(title = "Loess Smooth") 
+
+p3 <- ggplot(sim_poly2_aug, aes(x = x, y = y)) +
+    geom_point(alpha = 0.5) +
+    geom_line(aes(x = x, y = .fitted), 
+              col = "blue", linewidth = 1.25) +
+    labs(title = "Quadratic Polynomial") 
+
+p4 <- ggplot(sim_poly3_aug, aes(x = x, y = y)) +
+    geom_point(alpha = 0.5) +
+    geom_line(aes(x = x, y = .fitted), 
+              col = "purple", linewidth = 1.25) +
+    labs(title = "Cubic Polynomial") 
+
+(p1 + p2) / (p3 + p4)
+```
+
+## Restricted Cubic Spline Fits
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+p0 <- ggplot(sim_data, aes(x = x, y = y)) +
+    geom_point(alpha = 0.5) +
+    geom_smooth(method = "lm", formula = y ~ x, 
+                col = "black", se = F) +
+    labs(title = "Linear Fit") 
+
+p3 <- ggplot(sim_rcs3_aug, aes(x = x, y = y)) +
+    geom_point(alpha = 0.5) +
+    geom_line(aes(x = x, y = .fitted), 
+              col = "blue", size = 1.25) +
+    labs(title = "RCS with 3 knots") 
+
+p4 <- ggplot(sim_rcs4_aug, aes(x = x, y = y)) +
+    geom_point(alpha = 0.5) +
+    geom_line(aes(x = x, y = .fitted), 
+              col = "red", size = 1.25) +
+    labs(title = "RCS with 4 knots") 
+
+p5 <- ggplot(sim_rcs5_aug, aes(x = x, y = y)) +
+    geom_point(alpha = 0.5) +
+    geom_line(aes(x = x, y = .fitted), 
+              col = "purple", size = 1.25) +
+    labs(title = "RCS with 5 knots") 
+
+(p0 + p3) / (p4 + p5)
+```
+
+# Deciding Where to Try Non-Linear Terms
+
+## Spending degrees of freedom wisely
+
+- Suppose we have many possible predictors, and minimal theory or subject matter knowledge to guide us.
+- We might want our final inferences to be as unbiased as possible. To accomplish this, we have to pay a penalty (in terms of degrees of freedom) for any "peeks" we make at the data in advance of fitting a model.
+- So that rules out a lot of decision-making about non-linearity based on looking at the data, if our sample size isn't incredibly large.
+
+## Back to the HELP Trial
+
+Health Evaluation and Linkage to Primary Care (HELP) was a clinical trial of adult inpatients recruited from a detoxification unit. 
+
+- We have baseline data for each subject on several variables, including two outcomes:
+
+Variable | Description
+-----: | :----------------------------------------------
+`cesd` | Center for Epidemiologic Studies-Depression
+`cesd_hi` | `cesd` above 15 (indicates high risk)
+
+## `help1` data load
+
+```{r}
+#| echo: true
+help1 <- tibble(mosaicData::HELPrct) |>
+  select(id, cesd, age, sex, subst = substance, mcs, pcs, pss_fr) |>
+  zap_label() |>
+  mutate(across(where(is.character), as_factor), 
+         id = as.character(id), 
+         cesd_hi = factor(as.numeric(cesd >= 16)))
+
+dim(help1); n_miss(help1)
+
+head(help1, 5)
+```
+
+## The Six Predictors in `help1`
+
+- Predict `cesd` using these six predictors...
+
+Variable | Description
+-----: | :----------------------------------------------
+`age` | subject age (in years)
+`sex` | female (n = 107) or male (n = 346)
+`subst` | substance abused (alcohol, cocaine, heroin)
+`mcs` | SF-36 Mental Component Score 
+`pcs` | SF-36 Physical Component Score
+`pss_fr` | perceived social support by friends
+
+## Adding Non-Linear Terms Spends DF
+
+What happens when we add a non-linear term?
+
+- A polynomial of degree D costs D degrees of freedom.
+  - So a polynomial of degree 2 (quadratic) costs 2 df, or 1 more than the main effect alone.
+- A restricted cubic spline with K knots costs K-1 df.
+  - So adding a spline with 4 knots uses 3 df, or 2 more than the main effect alone.
+  - We'll only consider splines with 3, 4, or 5 knots.
+
+## Adding Non-Linear Terms Spends DF
+
+Adding an interaction (product term) depends on the main effects of the predictors we are interacting
+
+- If the product term's predictors have df1 and df2 degrees of freedom, product term adds df1 $\times$ df2 degrees of freedom.
+    - An interaction of a binary and quantitative variable adds 1 $\times$ 1 = 1 more df to the main effects model.
+- When we use a quantitative variable in a spline and interaction, we'll do the interaction on the main effect, not the spline.
+
+## Spearman's $\rho^2$ plot: A smart first step?
+
+Spearman's $\rho^2$ is an indicator (not a perfect one) of potential predictive punch, but doesn't give away the game.
+
+- Looking at Spearman's $\rho^2$ and selecting predictors to include non-linearity for reduces the impact of "looking at the data" which leads to bias in the model.
+- Idea: Perhaps we should focus our efforts re: non-linearity on predictors that score better on this measure.
+
+```{r}
+#| echo: true
+spear_cesd <- spearman2(cesd ~ mcs + subst + pcs + age + sex + pss_fr, 
+                        data = help1)
+```
+
+## Spearman's $\rho^2$ Plot
+
+```{r}
+#| echo: true
+#| fig-height: 5
+plot(spear_cesd)
+```
+
+## Conclusions from Spearman $\rho^2$ Plot
+
+- `mcs` is the most attractive candidate for a non-linear term, as it packs the most potential predictive punch, so if it does turn out to need non-linear terms, our degrees of freedom will be well spent. 
+    + This **does not** mean that `mcs` actually needs a non-linear term, or will show meaningfully better results if a non-linear term is included. We'd have to fit a model with and without non-linearity in `mcs` to know that.
+
+## Conclusions from Spearman $\rho^2$ Plot
+
+- `pcs`, also quantitative, has the next most potential predictive punch after `mcs`.
+- `pss_fr` and `sex` follow, then `subst` and `age`.
+
+```{r}
+#| echo: true
+spear_cesd
+```
+
+## A Main Effects Model
+
+Here's a summary of the degrees of freedom for a main effects model without any non-linear terms.
+
+```{r}
+#| echo: true
+fit1 <- lm(cesd ~ mcs + subst + pcs + age + sex + pss_fr, data = help1)
+
+glance(fit1) |> select(df, df.residual, nobs) |> 
+  gt() |> tab_options(table.font.size = 20) |> 
+  opt_stylize(style = 3, color = "cyan")
+```
+
+We started with 453 observations (452 df) and fitting `fit1` leaves 445 residual df, so `fit1` uses 7 degrees of freedom.
+
+## Grim Reality
+
+One popular standard for linear regression requires at least 25 observations *per regression coefficient that you will estimate*^[Jenkins and Quintana-Ascensio [A solution to minimum sample size for regressions](https://pubmed.ncbi.nlm.nih.gov/32084211/). *PLoS One*, 2020 Feb 21; 15(2): e0229345.].
+
+- With 453 observations (452 df) in the HELP trial, we should be thinking about models with modest numbers of regression inputs, since 25 is really a bare minimum. 
+- We've already committed to 7 such coefficients (intercept + our six predictors.) 
+
+## Sample Size (spending df)
+
+- Non-linear terms (polynomials, splines, product terms) just add to the problem, as they need additional degrees of freedom (parameters) to be estimated.
+- We'll also use more df every time if we consider re-fitting after variable selection.
+
+So we might choose to include non-linear terms in just two or three variables with this modest sample size (n = 453).
+
+- But I'll ignore all of that (for now) and propose a complex `fit2` model ...
+
+## Proposed New Model `fit2`
+
+Fit a model to predict `cesd` using:
+
+- a 5-knot spline on `mcs`
+- a 3-knot spline on `pcs`
+- a linear term on `pss_fr`
+- a linear term on `age`
+- an interaction of `sex` with the main effect of `mcs` (restricting our model so that terms that are non-linear in both `sex` and `mcs` are excluded), and
+- a main effect of `subst`
+
+## Our new model `fit2`
+
+Definitely more than we can reasonably do with 453 observations, but let's see how it looks.
+
+```{r}
+#| echo: true
+dd <- datadist(help1)
+options(datadist = "dd")
+
+fit2 <- ols(cesd ~ rcs(mcs, 5) + rcs(pcs, 3) + sex + mcs %ia% sex + 
+              pss_fr + age + subst, 
+            data = help1, x = TRUE, y = TRUE)
+```
+
+- `%ia%` tells R to fit an interaction term with `sex` and the main effect of `mcs`.
+    - We have to include `sex` as a main effect for the interaction term (`%ia%`) to work. We already have the main effect of `mcs` in as part of the spline.
+
+## Can we `fit2` with `lm()`?
+
+Yes.
+
+```{r}
+#| echo: true
+
+fit2_lm <- lm(cesd ~ rcs(mcs, 5) + rcs(pcs, 3) + sex + mcs %ia% sex + 
+                pss_fr + age + subst, data = help1)
+
+glance(fit2_lm) |> select(df, df.residual, nobs) |> 
+  gt() |> tab_options(table.font.size = 20) |> 
+  opt_stylize(style = 3, color = "cyan")
+```
+
+- So `fit2_lm` uses an additional 5 degrees of freedom beyond the 7 in `fit1`.
+
+## Our fitted model `fit2` (from `ols()`)
+
+```{r}
+#| echo: true
+fit2
+```
+
+## ANOVA for `fit2`
+
+This ANOVA testing is sequential, other than the TOTALS.
+
+```{r}
+#| echo: true
+#| eval: false
+anova(fit2)
+```
+
+```
+                Analysis of Variance          Response: cesd 
+
+ Factor                                   d.f. Partial SS   MS          F     P     
+ mcs  (Factor+Higher Order Factors)         5  26857.364671 5371.472934 72.21 <.0001
+  All Interactions                          1      2.026255    2.026255  0.03 0.8690
+  Nonlinear                                 3    293.502251   97.834084  1.32 0.2688
+ pcs                                        2   2548.388579 1274.194290 17.13 <.0001
+  Nonlinear                                 1      1.705031    1.705031  0.02 0.8797
+ sex  (Factor+Higher Order Factors)         2    451.578352  225.789176  3.04 0.0491
+  All Interactions                          1      2.026255    2.026255  0.03 0.8690
+ mcs * sex  (Factor+Higher Order Factors)   1      2.026255    2.026255  0.03 0.8690
+ pss_fr                                     1    448.812293  448.812293  6.03 0.0144
+ age                                        1     49.758786   49.758786  0.67 0.4139
+ subst                                      2    611.625952  305.812976  4.11 0.0170
+ TOTAL NONLINEAR                            4    293.512204   73.378051  0.99 0.4146
+ TOTAL NONLINEAR + INTERACTION              5    294.601803   58.920361  0.79 0.5558
+ REGRESSION                                12  38058.315322 3171.526277 42.64 <.0001
+ ERROR                                    440  32730.174744   74.386761             
+```
+
+
+## Plotting ANOVA results for `fit2`
+
+```{r}
+#| echo: true
+#| fig-height: 5
+plot(anova(fit2), what = "partial R2", sort = "ascending")
+```
+
+## Validation of Summary Statistics
+
+```{r}
+#| echo: true
+set.seed(432); validate(fit2)
+```
+
+## `summary` results for `fit2`
+
+```{r}
+#| echo: true
+#| fig-height: 6
+plot(summary(fit2))
+```
+
+## `summary` results for `fit2`
+
+```{r}
+#| echo: true
+#| eval: false
+summary(fit2)
+```
+
+```
+             Effects              Response : cesd 
+
+ Factor                  Low    High   Diff.  Effect    S.E.    Lower 0.95 Upper 0.95
+ mcs                     21.676 40.941 19.266 -10.96400 1.23340 -13.38800  -8.539800 
+ pcs                     40.384 56.953 16.569  -4.10790 0.73381  -5.55010  -2.665700 
+ pss_fr                   3.000 10.000  7.000  -1.79860 0.73225  -3.23780  -0.359500 
+ age                     30.000 40.000 10.000  -0.46552 0.56918  -1.58420   0.653130 
+ sex - female:male        2.000  1.000     NA   2.40260 0.99054   0.45577   4.349300 
+ subst - cocaine:alcohol  1.000  2.000     NA  -2.69990 0.99647  -4.65830  -0.741430 
+ subst - heroin:alcohol   1.000  3.000     NA  -2.17410 1.06770  -4.27250  -0.075632 
+
+Adjusted to: mcs=28.60242 sex=male  
+```
+
+## Impact of non-linearity?
+
+```{r}
+#| echo: true
+#| fig-height: 5
+ggplot(Predict(fit2))
+```
+
+## Nomogram for `fit2`
+
+```{r}
+#| echo: true
+#| fig-height: 6
+plot(nomogram(fit2))
+```
+
+## How to use the nomogram
+
+1. Find the value of each predictor on its provided line, and identify the "points" for that predictor by drawing a vertical line up to the "Points".
+2. Then sum up the points over all predictors to obtain "Total Points".
+3. Draw a vertical line down from the "Total Points" to the "Linear Predictor" to get the predicted `cesd` for this subject.
+
+The nomogram shows modeled effects and their impact on the predicted outcome.
+
+## Making Predictions
+
+Suppose we want to use our model `fit2` to make a prediction for `cesd` for a new subject, named Grace, who has the following characteristics...
+
+- sex = female, mcs = 40, pcs = 50
+- pss_fr = 7, age = 45, subst = "cocaine"
+
+We can build point and interval estimates for predicted `cesd` from `fit2` as follows...
+
+## Predictions for an Individual
+
+Suppose we have a new **individual subject** named Grace.
+
+```{r}
+#| echo: true
+grace <- tibble(sex = "female", mcs = 40, pcs = 50, 
+                pss_fr = 7, age = 45, subst = "cocaine")
+
+predict(fit2, newdata = grace, conf.int = 0.95, conf.type = "individual")
+```
+
+Our predicted `cesd` for Grace is 27.89, with 95% **prediction interval** (10.65, 45.13).
+
+## Predictions for a Long-Run Mean
+
+Predict **mean** `cesd` of a set of subjects with Grace's predictor values, along with a **confidence interval**.
+
+```{r}
+#| echo: true
+predict(fit2, newdata = grace, conf.int = 0.95, conf.type = "mean")
+```
+
+- Confidence interval (24.73, 31.04) is much narrower than prediction interval (10.65, 45.13).
+
+
+## Assessing the Calibration of `fit2`
+
+We would like our model to be well-calibrated, in the following sense...
+
+- Suppose our model assigns a predicted outcome of 6 to several subjects. 
+- If the model is well-calibrated, this means we expect the mean of those subjects’ actual outcomes to be very close to 6.
+- We'd like to look at the relationship between the observed `cesd` outcome and our predicted `cesd` from the model.
+
+## Building a Calibration Plot
+
+- The calibration plot we’ll create provides two estimates (with and without bias-correction) of the predicted vs. observed values of our outcome, and compares these to the ideal scenario (predicted = observed).
+- The plot uses resampling validation to produce bias-corrected estimates and uses lowess smooths to connect across predicted values.
+- Calibration plots require `x = TRUE, y = TRUE` in a fit with `ols()`.
+
+## Checking the model's calibration
+
+```{r}
+#| echo: true
+#| fig-height: 5
+set.seed(432); plot(calibrate(fit2))
+```
+
+
+## Checking the Model (slide 1/3)
+
+```{r}
+#| echo: true
+
+check_model(fit2_lm, check = c("pp_check", "linearity"))
+```
+
+## Checking the Model (slide 2/3)
+
+```{r}
+#| echo: true
+
+check_model(fit2_lm, detrend = FALSE, check = c("homogeneity", "qq"))
+```
+
+## Checking the Model (slide 3/3)
+
+The collinearity plot is a bit hard to see with all of these terms, so we can just look at the variance inflation factors:
+
+```{r}
+#| echo: true
+rms::vif(fit2)
+```
+
+```{r}
+#| echo: true
+car::vif(fit2_lm)
+```
+
+## Using both `lm()` and `ols()`
+
+- We can and will regularly use both `lm` and `ols` to fit a model like `fit2`.
+
+To delve into the details of how well this complex model works, and to help plot what is actually being fit, we'll want to fit the model using `ols()`. 
+
+- In Project A, we expect some results that are most easily obtained using `lm()` and others that are most easily obtained using `ols()`.
+
+## Next Time: Class 08 (2025-02-06)
+
+- Focus on a logistic regression scenario, and new data set
+  - Thinking about various pseudo-$R^2$ approaches
+  - Developing an optimal cutpoint for a confusion matrix
+  - Brier scores and other measures of calibration in logistic regression
+  - Checking assumptions in logistic regression
+  - Multiple imputation with `mice` and with `aregImpute()`
+
