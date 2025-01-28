@@ -480,7 +480,7 @@ predict(mod1, newdata = tibble(mcs = 35, subst = "heroin"))
 ```
 
 
-# Using `lrm()` to fit a linear regression model
+# Using `lrm()` to fit a logistic regression model
 
 ## Fitting using `lrm()`
 
