@@ -1,0 +1,1822 @@
+---
+title: "432 Class 08"
+author: Thomas E. Love, Ph.D.
+date: "2025-02-06"
+format:
+  revealjs: 
+    theme: simple
+    embed-resources: true
+    self-contained: true
+    slide-number: true
+    footnotes-hover: true
+    preview-links: auto
+    date-format: iso
+    logo: 432-2025-pic.png
+    footer: "432 Class 08 | 2025-02-06 | <https://thomaselove.github.io/432-2025/>"
+---
+
+## Today's Agenda
+
+- The Bechdel-Wallace Test and the Favorite Movies Data
+  - Data Cleanup: Working with Complete Cases
+- Logistic Regression with `glm()` and with `lrm()`
+  - Fitting Five Models and Comparing their Fits
+  - Evaluating a Logistic Model in detail
+  - Determining an optimal decision rule cutpoint
+  - Evaluating Logistic Regression Assumptions
+  - Making Predictions and Building Interval Estimates
+
+## Today's R Setup
+
+```{r}
+#| echo: true
+#| message: false
+knitr::opts_chunk$set(comment = NA)
+
+library(janitor)
+library(naniar)
+library(bestglm)    ## best subsets search using logistic regression
+library(broom)
+library(car)        ## special plot for logistic regression diagnostics
+library(caret)      ## for confusion matrices
+library(cobalt)     ## new today: to split factor into indicator variables
+library(cutpointr)  ## new today: optimizing cutpoints
+library(gt)
+library(readxl)     ## read in data from an Excel file
+library(tableone)   ## new today: produce a "simple" Table 1
+library(rms)              
+library(easystats)
+library(tidyverse)
+
+theme_set(theme_bw()) 
+```
+
+# "Favorite Movies" Data
+
+## Ingest Data from an Excel Sheet
+
+```{r}
+#| echo: true
+
+mov25_full <- read_xlsx("c08/data/movies_2025-01-28.xlsx", na = c("", "NA"))
+
+dim(mov25_full)
+```
+
+### Select Today's Variables
+
+```{r}
+#| echo: true
+mov25_0 <- mov25_full |>
+  janitor::clean_names() |>
+  select(mov_id, year, mpa, rt_reviews, ebert, gen_1, 
+         romance, action, bw_rating, movie) |>
+  mutate(across(where(is.character), as_factor),
+         mov_id = as.character(mov_id),
+         movie = as.character(movie)) 
+
+dim(mov25_0)
+```
+
+## Variables pulled from `mov25_full` {.smaller}
+
+| Variable | Description (n = 228 movies) |
+|:-------------:|:--------------------------------------------------------|
+| `mov_id` | Movie ID (meaningless code) |
+| `year` | Year movie was released |
+| `mpa` | [Motion Picture Association](https://www.motionpictures.org/film-ratings/) rating |
+| `reviews` | Number of Critic Reviews on [rottentomatoes.com](https://www.rottentomatoes.com/) |
+| `ebert` | Star Rating (1-4) on [RogerEbert.com](https://www.rogerebert.com/) |
+| `gen_1` | Gender (M or F) of first listed star of film ([IMDB](https://www.imdb.com/)) |
+| `romance` | 1 if Romance is in the movie's [IMDB](https://www.imdb.com/) Genre list (else 0) |
+| `action` | 1 if Action is in the movie's [IMDB](https://www.imdb.com/) Genre list (else 0) |
+| `bw_rating` | Score (0-3) on the [Bechdel-Wallace test](https://bechdeltest.com/) |
+| `movie` | Movie Title |
+
+
+
+## The Bechdel Test
+
+> The Bechdel Test, or Bechdel-Wallace Test was popularized by Alison Bechdel's comic, in a 1985 strip called [The Rule](https://dykestowatchoutfor.com/the-rule/).
+
+-   from <https://bechdeltest.com/>
+
+The Bechdel-Wallace Test is a simple way to gauge the active presence of female characters in Hollywood films and just how well rounded and complete those roles are[^1].
+
+[^1]: See <https://feministfrequency.com/video/the-bechdel-test-for-women-in-movies/>
+
+## Passing the Bechdel-Wallace Test
+
+To pass the test, a movie must have all three of the following.
+
+-   at least two (named) women
+-   who talk to each other
+-   about something besides a man
+
+```{r}
+#| echo: true
+mov25_0 <- mov25_0 |>
+  mutate(bechdel = factor(as.numeric(bw_rating == 3)))
+mov25_0 |> tabyl(bechdel, bw_rating) 
+```
+
+I use 0 and 1 as the categories for every logistic regression outcome.
+
+## Some Data Cleanup
+
+1.  Drop the films missing the `bechdel` information.
+2.  Create an `age` variable and use it instead of `year`.
+
+```{r}
+#| echo: true
+mov25_0 <- mov25_0 |>
+  filter(complete.cases(bechdel)) |>
+  mutate(age = 2025-year)
+
+mov25_0 |> tabyl(bechdel) |> adorn_pct_formatting()
+```
+
+Again, I **always** use 0 and 1 for a logistic regression outcome.
+
+## More Data Cleanup
+
+3.  Should we collapse the MPA ratings?
+
+```{r}
+#| echo: true
+summary(mov25_0$mpa)
+```
+
+Let's collapse to the two largest categories, plus "Other"
+
+```{r}
+#| echo: true
+
+mov25_0 <- mov25_0 |> mutate(mpa3 = fct_lump_n(mpa, n = 2))
+mov25_0 |> tabyl(mpa3) |> adorn_pct_formatting() |> 
+  gt() |> tab_options(table.font.size = 24)
+```
+
+## How should we treat `ebert` rating?
+
+```{r}
+#| echo: true
+
+mov25_0 |> tabyl(ebert) |> adorn_pct_formatting()
+
+describe(mov25_0$ebert)
+```
+
+## What shall we do about missing data?
+
+```{r}
+#| echo: true
+
+## using bechdel now instead of bw_rating
+
+mov25_0 <- mov25_0 |>
+  select(mov_id, bechdel, year, mpa, rt_reviews, ebert, gen_1, 
+         romance, action, bw_rating, movie)
+
+miss_case_table(mov25_0)
+
+miss_var_summary(mov25_0) |> filter(n_miss > 0)
+```
+
+## Which movies are missing data?
+
+```{r}
+#| echo: true
+mov25_0 |> filter(!complete.cases(ebert)) |>
+  select(mov_id, ebert, movie)
+```
+
+-   Does imputing seem reasonable here?
+-   Can we assume Missing at Random?
+
+## Today, we'll use complete cases
+
+-   Here is my recipe for `mov25` from start to finish.
+
+```{r}
+#| echo: true
+
+mov25 <- read_xlsx("c08/data/movies_2025-01-28.xlsx", na = c("", "NA")) |>
+  janitor::clean_names() |>
+  filter(complete.cases(bw_rating, ebert)) |>
+  mutate(across(where(is.character), as_factor),
+         mov_id = as.character(mov_id),
+         movie = as.character(movie),
+         age = 2025-year,
+         mpa3 = fct_lump_n(mpa, n = 2),
+         bechdel = factor(as.numeric(bw_rating == 3))) |>
+  select(mov_id, bechdel, age, mpa3, reviews = rt_reviews, ebert, 
+         gen_1, romance, action, movie)
+
+dim(mov25)
+```
+
+## `mov25` Variable Descriptions {.smaller}
+
+| Variable | Description (n = 196 movies) |
+|:-------------:|:--------------------------------------------------------|
+| `mov_id` | Movie ID (meaningless code) |
+| `bechdel` | 1 ("Pass") or 0 ("Fail") the [Bechdel-Wallace test](https://bechdeltest.com/) |
+| `age` | Age of movie (2025 - Year of release) |
+| `mpa3` | [MPA](https://www.motionpictures.org/film-ratings/) rating (3 levels: PG-13, R, Other) |
+| `reviews` | Number of Critic Reviews on [rottentomatoes.com](https://www.rottentomatoes.com/) |
+| `ebert` | Star Rating (1-4) on [RogerEbert.com](https://www.rogerebert.com/) |
+| `gen_1` | Gender (M or F) of first listed star of film ([IMDB](https://www.imdb.com/)) |
+| `romance` | 1 if Romance is in the movie's [IMDB](https://www.imdb.com/) Genre list (else 0) |
+| `action` | 1 if Action is in the movie's [IMDB](https://www.imdb.com/) Genre list (else 0) |
+| `movie` | Movie Title |
+
+## `data_codebook()`
+
+```{r}
+#| echo: true
+data_codebook(mov25 |> select(-mov_id, -movie))
+```
+
+## The `mov25` data listing
+
+```{r}
+#| echo: true
+
+mov25
+
+identical(nrow(mov25), n_distinct(mov25$mov_id)) ## are IDs unique?
+```
+
+## Splitting the sample?
+
+We have `r nrow(mov25)` films in our `mov25` tibble.
+
+-   It turns out that a logistic regression model needs about 96 observations just to fit a reasonable intercept term.
+-   Each additional coefficient we fit requires another 10-20 observations just so that we *might* validate well.
+
+Here, we want to explore seven predictors (`age`, `mpa3`, `reviews`, `ebert`, `gen_1`, `romance` and `action`.)
+
+-   Does it make sense to split our data into separate training and testing samples?
+
+## Four of Dr. Love's 125 favorite movies
+
+```{r}
+#| echo: true
+love4 <- tibble(
+  mov_id = c("L-2", "L-8", "L-63", "L-125"), age = c(63, 37, 22, 30), 
+  bechdel = c(0, 0, 1, 1), gen_1 = c("M", "M", "M", "F"), 
+  mpa3 = c("PG-13", "R", "Other", "Other"), reviews = c(67, 89, 230, 67), 
+  ebert = c(4, 2, 3.5, 3.5), romance = c(0, 0, 1, 1), action = c(0, 1, 0, 0), 
+  movie = c("The Manchurian Candidate", "Die Hard", "Love Actually", 
+            "Sense and Sensibility")) |>
+  mutate(across(where(is.character), as_factor),
+         mov_id = as.character(mov_id),
+         movie = as.character(movie)) 
+love4
+```
+
+## The Logistic Regression Model {.smaller}
+
+$$
+logit(event) = log\left( \frac{Pr(event)}{1 - Pr(event)} \right) = \beta_0 + \beta_1 X_1 + \beta_2 X_2 + ... + \beta_k X_k
+$$
+
+$$
+odds(event) = \frac{Pr(event)}{1 - Pr(event)}
+$$
+
+$$
+Pr(event) = \frac{odds(event)}{odds(event) + 1}
+$$
+
+$$
+Pr(event) = \frac{exp(logit(event))}{1 + exp(logit(event))}
+$$
+
+Here, our *event* will be "movie passes the Bechdel-Wallace test" (`bechdel` = 1)
+
+## Guess the associations? {.smaller}
+
+In which direction do you think these variables will be associated with passing the Bechdel-Wallace test?
+
+| Variable | Description (n = 196 movies) |
+|:-------------:|:--------------------------------------------------------|
+| `age` | Age of movie (2025 - Year of release) |
+| `mpa3` | [MPA](https://www.motionpictures.org/film-ratings/) rating (3 levels: PG-13, R, Other) |
+| `reviews` | Number of Critic Reviews on [rottentomatoes.com](https://www.rottentomatoes.com/) |
+| `ebert` | Star Rating (1-4) on [RogerEbert.com](https://www.rogerebert.com/) |
+| `gen_1` | Gender (M or F) of first listed star of film ([IMDB](https://www.imdb.com/)) |
+| `romance` | 1 if Romance is in the movie's [IMDB](https://www.imdb.com/) Genre list (else 0) |
+| `action` | 1 if Action is in the movie's [IMDB](https://www.imdb.com/) Genre list (else 0) |
+
+## Table 1?
+
+```{r}
+#| echo: true
+CreateTableOne(data = mov25, 
+   vars = c("age", "mpa3", "reviews", "ebert", "gen_1", "romance", "action"),
+   factorVars = c("mpa3", "gen_1", "romance", "action"),
+   strata = "bechdel")
+```
+
+
+## What Five Models Will We Fit Today?
+
+- `fit1`: two predictors (`age`, `gen_1`)
+- `fit2`: all seven predictors (`age`, `gen_1`, `mpa3`, `reviews`, `ebert`, `romance`, `action`)
+- `fit3`: predictor subset with the lowest BIC (from `bestglm` search)
+- `fit4`: predictor subset with the lowest AIC (`bestglm`)
+- `fit5`: add two non-linear terms using our 7 predictors
+
+# Model `fit1`
+
+## Model `fit1`: two predictors
+
+```{r}
+#| echo: true
+fit1 <- glm(bechdel ~ age + gen_1,
+             data = mov25, family = binomial(link = "logit"))
+
+n_obs(fit1)
+performance_roc(fit1)
+model_performance(fit1)
+```
+
+## Model `fit1` parameters
+
+```{r}
+#| echo: true
+
+model_parameters(fit1, exponentiate = TRUE, ci = 0.90)
+```
+
+or, if you prefer...
+
+```{r}
+#| echo: true
+
+tidy(fit1, exponentiate = TRUE, conf.int = TRUE, conf.level = 0.90)
+```
+
+## What is the `fit1` equation?
+
+```{r}
+#| echo: true
+
+fit1$coefficients ## note: without exponentiation
+```
+
+$$
+logit(\mbox{bechdel = 1}) = \\
+log\left( \frac{Pr(\mbox{bechdel = 1})}{1 - Pr(\mbox{bechdel = 1})} \right) = \\
+0.2862 -0.0193 (\mbox{age}) + 2.8065 (\mbox{gen_1 = F})
+$$
+
+## `lrm` version of `fit1`
+
+```{r}
+#| echo: true
+d <- datadist(mov25); options(datadist = "d")
+
+fit1_lrm <- lrm(bechdel ~ age + gen_1, data = mov25, 
+                x = TRUE, y = TRUE)
+```
+
+:::{.callout-note title="Key Summaries for `fit1_lrm` include..."}
+
+- C = 0.720, Nagelkerke $R^2$ = 0.259, Brier score = 0.200
+- See next slide for details.
+
+:::
+
+## `fit1_lrm` summaries
+
+```{r}
+#| echo: true
+
+fit1_lrm
+```
+
+## Nagelkerke $R^2$ for `fit1`
+
+From the `lrm()` fit (`fit1_lrm`), we have: Nagelkerke $R^2$ = 0.259, which isn't 25.9% of anything, but will be 1 if the fitted model shows as much improvement as possible over the null model.
+
+- This is the version of $R^2$ that the `validate()` function will look at.
+- The validated version of this is the best way I have to compare models.
+
+## Tjur's $R^2$ for `fit1`
+
+From the `glm()` fit (`fit1`), and the `model_performance()` function, we have: Tjur's $R^2$ = 0.181.
+
+- Tjur's $R^2$ = the difference between the average fitted probability when the outcome is 1 (bechdel Pass) minus the average fitted probability when the outcome is 0 (bechdel Fail, here.)
+- It's less useful than a validated Nagelkerke $R^2$ if your goal is to compare two models.
+
+## The McFadden $R^2$ for `fit1`
+
+- The McFadden $R^2$, which is 1 minus the ratio of (the model deviance over the deviance for the null model.)
+
+```{r}
+#| echo: true
+fit1_lrm$deviance
+
+1 - (fit1_lrm$deviance[2] / fit1_lrm$deviance[1])
+```
+
+The McFadden $R^2$ (= 0.157 here) and approximates a proportionate reduction in error. 
+
+- Also less useful than a validated Nagelkerke $R^2$ if your goal is to compare two models.
+
+## What are the effect sizes in `fit1_lrm`?
+
+```{r}
+#| echo: true
+summary(fit1_lrm)
+```
+
+## Plotting the Effects for `fit1_lrm`
+
+```{r}
+#| echo: true
+
+plot(summary(fit1_lrm))
+```
+
+## Prediction Plots for `fit1_lrm`
+
+```{r}
+#| echo: true
+
+ggplot(Predict(fit1_lrm, fun = plogis), layout = c(1,2))
+```
+
+## Calibration Plot for `fit1_lrm`
+
+```{r}
+#| echo: true
+
+plot(calibrate(fit1_lrm))
+```
+
+
+## Nomogram for `fit1_lrm`
+
+```{r}
+#| echo: true
+
+plot(nomogram(fit1_lrm, fun = plogis, funlabel = "Pr(pass Bechdel)"),
+     lplabel = "Logit(pass Bechdel)")
+```
+
+## Predictions from `fit1` for `love4` movies
+
+```{r}
+#| echo: true
+
+augment(fit1, newdata = love4, type.predict = "response") |>
+  select(movie, .fitted, bechdel, everything()) |>
+  gt() |> tab_options(table.font.size = 20) |>
+  opt_stylize(style = 5, color = "pink")
+```
+
+## CIs around our predictions?
+
+```{r}
+#| echo: true
+augment(fit1, newdata = love4, type.predict = "link", se_fit = TRUE) |>
+  mutate(ci_90_low = .fitted - 1.645 * .se.fit, 
+         ci_90_high = .fitted + 1.645 * .se.fit) |>
+  select(movie, .fitted, .se.fit, ci_90_low, ci_90_high, bechdel, everything())
+```
+
+## Converting from Logit to Probability Scale {.smaller}
+
+For The Manchurian Candidate, our predicted logit(bechdel pass) = -0.9314, with 90% CI (-1.7553, -0.1075). 
+
+- If logit(bechdel pass) = -0.9314, then odds(bechdel pass) = exp(-0.9314), and pr(bechdel pass) = exp(-0.9314) / (1 + exp(-0.9314)) = 0.3940 / 1.3940 = 0.283
+- If logit(bechdel pass) = -1.7553, then odds(bechdel pass) = exp(-1.7553), and pr(bechdel pass) = exp(-1.7553) / (1 + exp(-1.7553)) = 0.1729 / 1.1729 = 0.147
+- If logit(bechdel pass) = -0.1075, then odds(bechdel pass) = exp(-0.1075), and pr(bechdel pass) = exp(-0.1075) / (1 + exp(-0.1075)) = 0.8981 / 1.8981 = 0.473
+
+Predicted prob(bechdel pass) = 0.283 with 90% confidence interval (0.147, 0.473) for The Manchurian Candidate using `fit1`.
+
+## Confusion Matrix: Picking a Decision Rule
+
+- We'll use `cutpointr` to select a decision rule which maximizes "Sensitivity" + "Specificity".
+
+```{r}
+#| echo: true
+fit1_aug <- augment(fit1, type.predict = "response")
+
+cp1 <- cutpointr(data = fit1_aug, .fitted, bechdel, 
+                 pos_class = 1, neg_class = 0,
+                 method = maximize_metric, metric = sum_sens_spec)
+
+cp1 |> select(direction, optimal_cutpoint, method, sum_sens_spec) |> 
+  gt() |> tab_options(table.font.size = 24) |> 
+  opt_stylize(style = 2, color = "pink")
+```
+
+## Confusion Matrix for `fit1`
+
+```{r}
+#| echo: true
+cm1 <- confusionMatrix(data = factor(fit1_aug$.fitted >= cp1$optimal_cutpoint),
+          reference = factor(fit1_aug$bechdel == 1), positive = "TRUE")
+cm1
+```
+
+
+## `check_model` for `fit1` (1/4)
+
+```{r}
+#| echo: true
+check_model(fit1, check = c("pp_check", "vif"))
+```
+
+## `check_model` for `fit1` (2/4)
+
+```{r}
+#| echo: true
+check_model(fit1, check = c("outliers", "qq"))
+```
+
+## `check_model` for `fit1` (3/4)
+
+```{r}
+#| echo: true
+check_model(fit1, check = c("binned_residuals"))
+```
+
+## `check_model` for `fit1` (4/4)
+
+- Extra details for the last three plots...
+
+```{r}
+#| echo: true
+
+check_outliers(fit1)
+check_residuals(fit1)
+binned_residuals(fit1)
+```
+
+## Analysis of Deviance for `fit1`
+
+```{r}
+#| echo: true
+anova(fit1_lrm)
+```
+
+:::{.callout-note}
+
+Remember that this result shows sequential tests, and if you change the order of the predictors, the *p* values will change.
+
+:::
+
+## Validating Key Summaries (`fit1`)
+
+```{r}
+#| echo: true
+set.seed(202502061); validate(fit1_lrm, B = 50)
+```
+
+- C = 0.5 + Dxy, so validated C for `fit1` = 0.5 + (0.4398/2) = 0.7199, validated Nagelkerke $R^2$ = 0.2503, and validated Brier score B = 0.2037
+
+# Model `fit2`
+
+## Model `fit2`: all seven predictors
+
+```{r}
+#| echo: true
+fit2 <- glm(bechdel ~ age + gen_1 + mpa3 + reviews + 
+              ebert + romance + action,
+            data = mov25, family = binomial(link = "logit"))
+
+n_obs(fit2)
+performance_roc(fit2)
+model_performance(fit2)
+```
+
+## Model `fit2` parameters
+
+```{r}
+#| echo: true
+
+model_parameters(fit2, exponentiate = TRUE, ci = 0.90)
+```
+
+## What is the `fit2` equation?
+
+```{r}
+#| echo: true
+
+fit2$coefficients ## note: without exponentiation
+```
+
+$$
+logit(\mbox{bechdel = 1}) = \\
+-0.0531 + 0.0165 (\mbox{age}) + 2.5862 (\mbox{gen_1 = F}) - 0.2966 (\mbox{mpa3 = R}) + \\
+0.1030 (\mbox{mpa3 = Other}) + 0.0072 (\mbox{reviews}) - 0.5283 (\mbox{ebert}) + \\
+0.5223 (\mbox{romance}) - 0.7663 (\mbox{action})
+$$
+
+## `lrm` version of `fit2`
+
+```{r}
+#| echo: true
+d <- datadist(mov25); options(datadist = "d")
+
+fit2_lrm <- lrm(bechdel ~ age + gen_1 + mpa3 + reviews + 
+                  ebert + romance + action, 
+                data = mov25, x = TRUE, y = TRUE)
+```
+
+:::{.callout-note title="Key Summaries for `fit2_lrm` include..."}
+
+- C = 0.792, Nagelkerke $R^2$ = 0.340, Brier score = 0.181
+- See next slide for details.
+
+:::
+
+## `fit2_lrm` summaries
+
+```{r}
+#| echo: true
+
+fit2_lrm
+```
+
+## Pseudo $R^2$ summaries
+
+Our `fit2` (and `fit1` results) are tabulated below...
+
+Name | Pseudo-$R^2$ for `fit2` | Pseudo-$R^2$ for `fit1`
+:------: | :---------: | :----------:
+Nagelkerke | 0.339 | 0.259
+Tjur's | 0.255 | 0.181
+McFadden | 0.213 | 0.157
+
+- Remember that when comparing models, we want to use a **validated** Nagelkerke, among these three options.
+
+## Comparing Model Indices from `fit1` and `fit2`
+
+```{r}
+#| echo: true
+plot(compare_performance(fit1, fit2, metrics = "common"))
+```
+
+## What are the effect sizes in `fit2_lrm`?
+
+```{r}
+#| echo: true
+summary(fit2_lrm)
+```
+
+## Plotting the Effects for `fit2_lrm`
+
+```{r}
+#| echo: true
+
+plot(summary(fit2_lrm))
+```
+
+## Prediction Plots for `fit2_lrm`
+
+```{r}
+#| echo: true
+
+ggplot(Predict(fit2_lrm, fun = plogis))
+```
+
+## Calibration Plot for `fit2_lrm`
+
+```{r}
+#| echo: true
+
+plot(calibrate(fit2_lrm))
+```
+
+## Nomogram for `fit2_lrm`
+
+```{r}
+#| echo: true
+#| fig-height: 7
+
+plot(nomogram(fit2_lrm, fun = plogis, funlabel = "Pr(pass Bechdel)"),
+     lplabel = "Logit(pass Bechdel)")
+```
+
+## Predictions from `fit2` for `love4` movies
+
+```{r}
+#| echo: true
+
+augment(fit2, newdata = love4, type.predict = "response") |>
+  select(movie, .fitted, bechdel, everything()) |>
+  gt() |> tab_options(table.font.size = 20) |>
+  opt_stylize(style = 5, color = "pink")
+```
+
+## CIs around our predictions?
+
+```{r}
+#| echo: true
+augment(fit2, newdata = love4, type.predict = "link", se_fit = TRUE) |>
+  mutate(ci_90_low = .fitted - 1.645 * .se.fit, 
+         ci_90_high = .fitted + 1.645 * .se.fit) |>
+  select(movie, .fitted, .se.fit, ci_90_low, ci_90_high, bechdel, everything())
+```
+
+## Converting from Logit to Probability Scale {.smaller}
+
+For Sense and Sensibility, our predicted logit(bechdel pass) = 2.2842, with 90% CI (1.0809, 3.4876). 
+
+- If logit(bechdel pass) = 2.2842, then odds(bechdel pass) = exp(2.2842), and pr(bechdel pass) = exp(2.2842) / (1 + exp(2.2842)) = 9.8178 / 10.8178 = 0.908
+- If logit(bechdel pass) = 1.0809, then odds(bechdel pass) = exp(1.0809), and pr(bechdel pass) = exp(1.0809) / (1 + exp(1.0809)) = 2.9473 / 3.9473 = 0.747
+- If logit(bechdel pass) = 3.4876, then odds(bechdel pass) = exp(3.4876), and pr(bechdel pass) = exp(3.4876) / (1 + exp(3.4876)) = 32.7074 / 33.7074 = 0.970
+
+Predicted prob(bechdel pass) = 0.908 with 90% confidence interval (0.747, 0.970) for Sense and Sensibility using `fit2`.
+
+## Picking a Decision Rule for `fit2`
+
+- Again, using `cutpointr` to select a decision rule which maximizes "Sensitivity" + "Specificity".
+
+```{r}
+#| echo: true
+fit2_aug <- augment(fit2, type.predict = "response")
+
+cp2 <- cutpointr(data = fit2_aug, .fitted, bechdel, 
+                 pos_class = 1, neg_class = 0,
+                 method = maximize_metric, metric = sum_sens_spec)
+
+cp2 |> select(direction, optimal_cutpoint, method, sum_sens_spec) |> 
+  gt() |> tab_options(table.font.size = 24) |> 
+  opt_stylize(style = 2, color = "pink")
+```
+
+## Confusion Matrix for `fit2`
+
+```{r}
+#| echo: true
+cm2 <- confusionMatrix(data = factor(fit2_aug$.fitted >= cp2$optimal_cutpoint),
+          reference = factor(fit2_aug$bechdel == 1), positive = "TRUE")
+cm2
+```
+
+# Checking Assumptions in Logistic Regression Models
+
+## Linear Regression vs. Logistic Regression
+
+Adapted from <https://www.statology.org/assumptions-of-logistic-regression/>
+
+In contrast to linear regression, logistic regression does not require:
+
+- A linear relationship between the predictors and the outcome.
+- The residuals of the model to be normally distributed.
+- The residuals to have constant variance (homoscedasticity/)
+
+## Assumptions of Logistic Regression
+
+Adapted from <https://www.statology.org/assumptions-of-logistic-regression/>
+
+1. The outcome variable is binary.
+2. The observations are independent from each other. (They shouldn't show a pattern in time or space.)
+3. There is no severe multicollinearity among the predictors (we use VIF > 5 as an indicator of trouble.)
+
+## Assumptions of Logistic Regression
+
+4. There are no extreme outliers (Cook's distance > .5 is what R flags as problematic^[Some argue for a standard of 0.25, or 1, or even 4/n, where n is your sample size.].)
+5. The sample size is sufficiently large (see next few slides.)
+6. There is a linear relationship between predictors and the logit of the outcome (see the final few slides.)
+
+## What does sufficiently large mean?
+
+1. Some people like a simple rule like 500 observations overall and 10 events (where an event is the smaller of your two outcome groups) per predictor parameter. See [Long's 1997 book (pdf)](https://jslsoc.sitehost.iu.edu/files_research/rm4cldv/sage1997/rm4cldv_toc.pdf).
+
+For *Project A*, we focus on keeping the number of predictors below (4 + (N-100)) / 100) where N is the size of the smaller of your two outcome groups. I wouldn't use that standard outside of Project A, though.
+
+## What does sufficiently large mean?
+
+2. Riley et al. in [Statistics in Medicine](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6519266/) develop an estimation scheme for the needed sample sizes, and motivate it with several examples. It's pretty complex but it's a good option.
+
+![](c08/figures/riley.png)
+
+## First Two Assumptions
+
+1. The outcome variable is binary.
+    - OK. `bechdel` is either 1 (Pass) or 0 (Fail.)
+
+```{r}
+#| echo: true
+
+mov25 |> count(bechdel)
+```
+
+2. The observations are independent from each other. (They shouldn't show a pattern in time or space.)
+    - The data are cross-sectional. No one film's results should affect another film's results, so we're OK.
+
+## Assumption Three
+
+3. There is no severe multicollinearity among the predictors (we use VIF > 5 as an indicator of trouble.)
+    
+```{r}
+#| echo: true
+car::vif(fit2)
+rms::vif(fit2_lrm)
+```
+
+## Assumption Four
+
+4. There are no extreme outliers (no Cook's distance > 0.5)
+
+```{r}
+#| echo: true
+#| fig-height: 3.5
+
+max(cooks.distance(fit2))
+
+plot(fit2, which = 4, id.n = 5)
+```
+
+## Assumption Five
+
+5. The sample size is sufficiently large. 
+
+- Recall that we have 113 Pass and 83 Fail movies in `mov25`.
+
+```{r}
+#| echo: true
+
+glance(fit2) |> select(nobs)  ## could use mod2_lrm$stats["Obs"]
+```
+
+Does this seem like enough observations to fit a logistic regression model with 7 predictors (and 8 df) under consideration?
+
+## Assumption Six
+
+6. There is a linear relationship between predictors and the logit of the outcome. 
+
+A **Box-Tidwell test** is a common strategy to test this assumption, but it doesn't work for logistic models [according to John Fox](https://stackoverflow.com/questions/56350546/how-to-use-the-box-tidwell-function-with-a-logistic-regression-in-r), inventor of the `car` package^[Fox, J. (2016) Applied Regression Analysis and Generalized Linear Models, 3rd Ed.].
+
+He instead recommends Component + Residual plots (Partial Residual plots) which can be used for linear and generalized linear models.
+
+## Interpreting the Partial Residual Plots
+
+- The blue dashed line shows the expected residuals if the relationship between the predictor and response variable (here the log odds of our outcome) was linear. 
+- The solid pink curve shows a loess smooth of the actual residuals.
+
+If the two lines are meaningfully different, then this is evidence of a nonlinear relationship. One way to fix this issue is to build a transformation on the predictor variables, or consider incorporating some non-linear terms.
+
+## Running Partial Residual Plots 
+
+```{r}
+#| echo: true
+#| warning: false
+crPlots(fit2) ## crPlots comes from the car package
+```
+
+## `check_model` for `fit2` (1/4)
+
+```{r}
+#| echo: true
+check_model(fit2, check = c("pp_check", "vif"))
+```
+
+## `check_model` for `fit2` (2/4)
+
+```{r}
+#| echo: true
+check_model(fit2, check = c("outliers", "qq"))
+```
+
+## `check_model` for `fit2` (3/4)
+
+```{r}
+#| echo: true
+check_model(fit2, check = c("binned_residuals"))
+```
+
+## `check_model` for `fit2` (4/4)
+
+- Extra details for the last three plots...
+
+```{r}
+#| echo: true
+
+check_outliers(fit2)
+check_residuals(fit2)
+binned_residuals(fit2)
+```
+
+## Analysis of Deviance for `fit2`
+
+```{r}
+#| echo: true
+anova(fit2_lrm)
+```
+
+:::{.callout-note}
+
+Remember that this result shows sequential tests, and if you change the order of the predictors, the *p* values will change.
+
+:::
+
+## Validating Key Summaries (`fit2`)
+
+```{r}
+#| echo: true
+set.seed(202502062); validate(fit2_lrm, B = 50)
+```
+
+- C = 0.5 + Dxy, so validated C for `fit2` = 0.5 + (0.5177/2) = 0.7589, validated Nagelkerke $R^2$ = 0.2661, and validated Brier score B = 0.1989
+
+# Model `fit3`
+
+## Preparing to Search through our predictors
+
+```{r}
+#| echo: true
+
+mov25_sf <- 
+  cobalt::splitfactor(mov25, "mpa3", replace = TRUE, drop.first = TRUE)
+
+names(mov25_sf)
+
+Xy <- mov25_sf |> 
+  select(age, mpa3_R, mpa3_Other, reviews, ebert, 
+         gen_1, romance, action, bechdel) |>
+  data.frame()
+
+```
+
+- We're building `Xy` to contain all of our predictors (with multi-categorical predictors inserted using indicator variables) followed by the outcome.
+
+## Predictor Subset with the best AIC
+
+The code below searches the predictors in `Xy` for the combination that produces the smallest (hence best) AIC (Akaike Information Criterion).
+
+```{r}
+#| echo: true
+
+best_AIC <- bestglm(Xy, IC = "AIC", family = binomial)
+best_AIC
+```
+
+## Model `fit3`: best subsets with AIC
+
+```{r}
+#| echo: true
+fit3 <- glm(bechdel ~ gen_1 + reviews + ebert + action,
+            data = mov25, family = binomial(link = "logit"))
+
+n_obs(fit3)
+performance_roc(fit3)
+model_performance(fit3)
+```
+
+## Model `fit3` parameters
+
+```{r}
+#| echo: true
+
+model_parameters(fit3, exponentiate = TRUE, ci = 0.90)
+```
+
+## What is the `fit3` equation?
+
+```{r}
+#| echo: true
+
+fit3$coefficients ## note: without exponentiation
+```
+
+$$
+logit(\mbox{bechdel = 1}) = \\
+0.5300 + 2.7118 (\mbox{gen_1 = F}) + 0.0051 (\mbox{reviews}) - \\
+0.4657 (\mbox{ebert}) - 0.7158 (\mbox{action})
+$$
+
+## `lrm` version of `fit3`
+
+```{r}
+#| echo: true
+d <- datadist(mov25); options(datadist = "d")
+
+fit3_lrm <- lrm(bechdel ~ gen_1 + reviews + ebert + action, 
+                data = mov25, x = TRUE, y = TRUE)
+```
+
+:::{.callout-note title="Key Summaries for `fit3_lrm` include..."}
+
+- C = 0.779, Nagelkerke $R^2$ = 0.321, Brier score = 0.184
+- See next slide for details.
+
+:::
+
+## `fit3_lrm` summaries
+
+```{r}
+#| echo: true
+
+fit3_lrm
+```
+
+## Pseudo $R^2$ summaries
+
+Name | Pseudo-$R^2$ for `fit3` | `fit2` | `fit1`
+:------: | :---------: | :-----: | :-----:
+Nagelkerke | 0.321 | 0.339 | 0.259
+Tjur's | 0.240 | 0.255 | 0.181
+McFadden | 0.200 | 0.213 | 0.157
+
+```{r}
+#| echo: true
+1 - (fit3_lrm$deviance[2] / fit3_lrm$deviance[1])
+```
+
+## Comparing Model Indices from our 3 models
+
+```{r}
+#| echo: true
+plot(compare_performance(fit1, fit2, fit3, metrics = "common"))
+```
+
+## What are the effect sizes in `fit3_lrm`?
+
+```{r}
+#| echo: true
+summary(fit3_lrm)
+```
+
+## Plotting the Effects for `fit3_lrm`
+
+```{r}
+#| echo: true
+
+plot(summary(fit3_lrm))
+```
+
+## Prediction Plots for `fit3_lrm`
+
+```{r}
+#| echo: true
+
+ggplot(Predict(fit3_lrm, fun = plogis))
+```
+
+## Calibration Plot for `fit3_lrm`
+
+```{r}
+#| echo: true
+
+plot(calibrate(fit3_lrm))
+```
+
+## Nomogram for `fit3_lrm`
+
+```{r}
+#| echo: true
+#| fig-height: 7
+
+plot(nomogram(fit3_lrm, fun = plogis, funlabel = "Pr(pass Bechdel)"),
+     lplabel = "Logit(pass Bechdel)")
+```
+
+## Predictions from `fit3` for `love4` movies
+
+```{r}
+#| echo: true
+
+augment(fit3, newdata = love4, type.predict = "response") |>
+  select(movie, .fitted, bechdel, everything()) |>
+  gt() |> tab_options(table.font.size = 20) |>
+  opt_stylize(style = 5, color = "pink")
+```
+
+## CIs around our predictions?
+
+```{r}
+#| echo: true
+augment(fit3, newdata = love4, type.predict = "link", se_fit = TRUE) |>
+  mutate(ci_90_low = .fitted - 1.645 * .se.fit, 
+         ci_90_high = .fitted + 1.645 * .se.fit) |>
+  select(movie, .fitted, .se.fit, ci_90_low, ci_90_high, bechdel, everything())
+```
+
+## Converting from Logit to Probability Scale {.smaller}
+
+For Love Actually, our predicted logit(bechdel pass) = 0.0813, with 90% CI (-0.2725, 0.4351). 
+
+- If logit(bechdel pass) = 0.0813, then odds(bechdel pass) = exp(0.0813), and pr(bechdel pass) = exp(0.0813) / (1 + exp(0.0813)) = 1.0847/2.0847 = 0.520
+- If logit(bechdel pass) = -0.2725, then odds(bechdel pass) = exp(-0.2725), and pr(bechdel pass) = exp(-0.2725) / (1 + exp(-0.2725)) = 0.7615/1.7615 = 0.432
+- If logit(bechdel pass) = 0.4351, then odds(bechdel pass) = exp(0.4351), and pr(bechdel pass) = exp(0.4351) / (1 + exp(0.4351)) = 1.5451 / 2.5451 = 0.607
+
+Predicted prob(bechdel pass) = 0.520 with 90% confidence interval (0.432, 0.607) for Love Actually using `fit3`.
+
+## Picking a Decision Rule for `fit3`
+
+- Again, using `cutpointr` to select a decision rule which maximizes "Sensitivity" + "Specificity".
+
+```{r}
+#| echo: true
+fit3_aug <- augment(fit3, type.predict = "response")
+
+cp3 <- cutpointr(data = fit3_aug, .fitted, bechdel, 
+                 pos_class = 1, neg_class = 0,
+                 method = maximize_metric, metric = sum_sens_spec)
+
+cp3 |> select(direction, optimal_cutpoint, method, sum_sens_spec) |> 
+  gt() |> tab_options(table.font.size = 24) |> 
+  opt_stylize(style = 2, color = "pink")
+```
+
+## Confusion Matrix for `fit3`
+
+```{r}
+#| echo: true
+cm3 <- confusionMatrix(data = factor(fit3_aug$.fitted >= cp3$optimal_cutpoint),
+          reference = factor(fit3_aug$bechdel == 1), positive = "TRUE")
+cm3
+```
+
+## No severe multicollinearity? (`fit3`)
+
+```{r}
+#| echo: true
+car::vif(fit3)
+rms::vif(fit3_lrm)
+```
+
+## No Cook's distance > 0.5? (`fit3`)
+
+```{r}
+#| echo: true
+#| fig-height: 3.5
+
+max(cooks.distance(fit3))
+
+plot(fit3, which = 4, id.n = 5)
+```
+
+## `fit3` Partial Residual Plots 
+
+```{r}
+#| echo: true
+#| warning: false
+crPlots(fit3) ## crPlots comes from the car package
+```
+
+## `check_model` for `fit3` (1/4)
+
+```{r}
+#| echo: true
+check_model(fit3, check = c("pp_check", "vif"))
+```
+
+## `check_model` for `fit3` (2/4)
+
+```{r}
+#| echo: true
+check_model(fit3, check = c("outliers", "qq"))
+```
+
+## `check_model` for `fit3` (3/4)
+
+```{r}
+#| echo: true
+check_model(fit3, check = c("binned_residuals"))
+```
+
+## `check_model` for `fit3` (4/4)
+
+- Extra details for the last three plots...
+
+```{r}
+#| echo: true
+
+check_outliers(fit3)
+check_residuals(fit3)
+binned_residuals(fit3)
+```
+
+## Analysis of Deviance for `fit3`
+
+```{r}
+#| echo: true
+anova(fit3_lrm)
+```
+
+:::{.callout-note}
+
+Remember that this result shows sequential tests, and if you change the order of the predictors, the *p* values will change.
+
+:::
+
+## Validating Key Summaries (`fit3`)
+
+```{r}
+#| echo: true
+set.seed(202502063); validate(fit3_lrm, B = 50)
+```
+
+- C = 0.5 + Dxy, so validated C for `fit3` = 0.5 + (0.5425/2) = 0.7713, validated Nagelkerke $R^2$ = 0.3022, and validated Brier score B = 0.1904
+
+# Model `fit4`
+
+## Preparing to Search through our predictors
+
+```{r}
+#| echo: true
+
+mov25_sf <- 
+  cobalt::splitfactor(mov25, "mpa3", replace = TRUE, drop.first = TRUE)
+
+names(mov25_sf)
+
+Xy <- mov25_sf |> 
+  select(age, mpa3_R, mpa3_Other, reviews, ebert, 
+         gen_1, romance, action, bechdel) |>
+  data.frame()
+
+```
+
+Just as before, `Xy` contains all predictors (with multi-categorical predictors inserted using indicator variables) followed by the outcome.
+
+## Predictor Subset with the best BIC
+
+The code below searches the predictors in `Xy` for the combination that produces the smallest (hence best) BIC (Bayes Information Criterion).
+
+```{r}
+#| echo: true
+
+best_BIC <- bestglm(Xy, IC = "BIC", family = binomial)
+best_BIC
+```
+
+## Model `fit4`: best subsets with BIC
+
+```{r}
+#| echo: true
+fit4 <- glm(bechdel ~ gen_1 + reviews,
+            data = mov25, family = binomial(link = "logit"))
+
+n_obs(fit4)
+performance_roc(fit4)
+model_performance(fit4)
+```
+
+## Model `fit4` parameters
+
+```{r}
+#| echo: true
+
+model_parameters(fit4, exponentiate = TRUE, ci = 0.90)
+```
+
+## What is the `fit4` equation?
+
+```{r}
+#| echo: true
+
+fit4$coefficients ## note: without exponentiation
+```
+
+$$
+logit(\mbox{bechdel = 1}) = \\
+-0.9594 + 2.9266 (\mbox{gen_1 = F}) + 0.0039 (\mbox{reviews})
+$$
+
+## `lrm` version of `fit4`
+
+```{r}
+#| echo: true
+d <- datadist(mov25); options(datadist = "d")
+
+fit4_lrm <- lrm(bechdel ~ gen_1 + reviews, 
+                data = mov25, x = TRUE, y = TRUE)
+```
+
+:::{.callout-note title="Key Summaries for `fit4_lrm` include..."}
+
+- C = 0.743, Nagelkerke $R^2$ = 0.285, Brier score = 0.192
+- See next slide for details.
+
+:::
+
+## `fit4_lrm` summaries
+
+```{r}
+#| echo: true
+
+fit4_lrm
+```
+
+## Pseudo $R^2$ summaries
+
+Name | Pseudo-$R^2$ for `fit4` | `fit3` | `fit2` | `fit1`
+:------: | :---------: | :-----: | :-----: | :-----:
+Nagelkerke | 0.285 | 0.321 | 0.339 | 0.259
+Tjur's | 0.208 | 0.240 | 0.255 | 0.181
+McFadden | 0.175 | 0.200 | 0.213 | 0.157
+
+```{r}
+#| echo: true
+1 - (fit4_lrm$deviance[2] / fit4_lrm$deviance[1])
+```
+
+## Comparing Model Indices from our 4 models
+
+```{r}
+#| echo: true
+plot(compare_performance(fit1, fit2, fit3, fit4, metrics = "common"))
+```
+
+## What are the effect sizes in `fit4_lrm`?
+
+```{r}
+#| echo: true
+summary(fit4_lrm)
+```
+
+## Plotting the Effects for `fit4_lrm`
+
+```{r}
+#| echo: true
+
+plot(summary(fit4_lrm))
+```
+
+## Prediction Plots for `fit4_lrm`
+
+```{r}
+#| echo: true
+
+ggplot(Predict(fit4_lrm, fun = plogis), layout = c(1,2))
+```
+
+## Calibration Plot for `fit4_lrm`
+
+```{r}
+#| echo: true
+
+plot(calibrate(fit4_lrm))
+```
+
+## Nomogram for `fit4_lrm`
+
+```{r}
+#| echo: true
+#| fig-height: 7
+
+plot(nomogram(fit4_lrm, fun = plogis, funlabel = "Pr(pass Bechdel)"),
+     lplabel = "Logit(pass Bechdel)")
+```
+
+## Predictions from `fit4` for `love4` movies
+
+```{r}
+#| echo: true
+
+augment(fit4, newdata = love4, type.predict = "response") |>
+  select(movie, .fitted, bechdel, everything()) |>
+  gt() |> tab_options(table.font.size = 20) |>
+  opt_stylize(style = 5, color = "pink")
+```
+
+## CIs around our predictions?
+
+```{r}
+#| echo: true
+augment(fit4, newdata = love4, type.predict = "link", se_fit = TRUE) |>
+  mutate(ci_90_low = .fitted - 1.645 * .se.fit, 
+         ci_90_high = .fitted + 1.645 * .se.fit) |>
+  select(movie, .fitted, .se.fit, ci_90_low, ci_90_high, bechdel, everything())
+```
+
+## Converting from Logit to Probability Scale {.smaller}
+
+For Die Hard, our predicted logit(bechdel pass) = -0.6135, with 90% CI (-1.0104, -0.2167). 
+
+- If logit(bechdel pass) = -0.6135, then odds(bechdel pass) = exp(-0.6135), and pr(bechdel pass) = exp(-0.6135) / (1 + exp(-0.6135)) = 0.5415/1.5415 = 0.351
+- If logit(bechdel pass) = -1.0104, then odds(bechdel pass) = exp(-1.0104), and pr(bechdel pass) = exp(-1.0104) / (1 + exp(-1.0104)) = 0.3641/1.3641 = 0.267
+- If logit(bechdel pass) = -0.2167, then odds(bechdel pass) = exp(-0.2167), and pr(bechdel pass) = exp(-0.2167) / (1 + exp(-0.2167)) = 0.8052/1.8052 = 0.446
+
+Predicted prob(bechdel pass) = 0.351 with 90% confidence interval (0.267, 0.446) for Die Hard using `fit4`.
+
+## Picking a Decision Rule for `fit4`
+
+- Again, using `cutpointr` to select a decision rule which maximizes "Sensitivity" + "Specificity".
+
+```{r}
+#| echo: true
+fit4_aug <- augment(fit4, type.predict = "response")
+
+cp4 <- cutpointr(data = fit4_aug, .fitted, bechdel, 
+                 pos_class = 1, neg_class = 0,
+                 method = maximize_metric, metric = sum_sens_spec)
+
+cp4 |> select(direction, optimal_cutpoint, method, sum_sens_spec) |> 
+  gt() |> tab_options(table.font.size = 24) |> 
+  opt_stylize(style = 2, color = "pink")
+```
+
+## Confusion Matrix for `fit4`
+
+```{r}
+#| echo: true
+cm4 <- confusionMatrix(data = factor(fit4_aug$.fitted >= cp4$optimal_cutpoint),
+          reference = factor(fit4_aug$bechdel == 1), positive = "TRUE")
+cm4
+```
+
+## No severe multicollinearity? (`fit4`)
+
+```{r}
+#| echo: true
+car::vif(fit4)
+rms::vif(fit4_lrm)
+```
+
+## No Cook's distance > 0.5? (`fit4`)
+
+```{r}
+#| echo: true
+#| fig-height: 3.5
+
+max(cooks.distance(fit4))
+
+plot(fit4, which = 4, id.n = 5)
+```
+
+## `fit4` Partial Residual Plots 
+
+```{r}
+#| echo: true
+#| warning: false
+crPlots(fit4) ## crPlots comes from the car package
+```
+
+## `check_model` for `fit4` (1/4)
+
+```{r}
+#| echo: true
+check_model(fit4, check = c("pp_check", "vif"))
+```
+
+## `check_model` for `fit4` (2/4)
+
+```{r}
+#| echo: true
+check_model(fit4, check = c("outliers", "qq"))
+```
+
+## `check_model` for `fit4` (3/4)
+
+```{r}
+#| echo: true
+check_model(fit4, check = c("binned_residuals"))
+```
+
+## `check_model` for `fit4` (4/4)
+
+- Extra details for the last three plots...
+
+```{r}
+#| echo: true
+
+check_outliers(fit4)
+check_residuals(fit4)
+binned_residuals(fit4)
+```
+
+## Analysis of Deviance for `fit4`
+
+```{r}
+#| echo: true
+anova(fit4_lrm)
+```
+
+:::{.callout-note}
+
+Remember that this result shows sequential tests, and if you change the order of the predictors, the *p* values will change.
+
+:::
+
+## Validating Key Summaries (`fit4`)
+
+```{r}
+#| echo: true
+set.seed(202502064); validate(fit4_lrm, B = 50)
+```
+
+- C = 0.5 + Dxy, so validated C for `fit4` = 0.5 + (0.4815/2) = 0.7408, validated Nagelkerke $R^2$ = 0.2778, and validated Brier score B = 0.1954
+
+# Model `fit5`
+
+## Spearman $\rho^2$ plot from `fit2`
+
+```{r}
+#| echo: true
+plot(spearman2(bechdel ~ age + gen_1 + mpa3 + reviews + 
+    ebert + romance + action, data = mov25))
+```
+
+## Model `fit5`: add two non-linear terms
+
+```{r}
+#| echo: true
+fit5 <- glm(bechdel ~ gen_1 * romance + rcs(age, 4) + 
+              mpa3 + reviews + ebert + action, 
+            data = mov25, family = binomial(link = "logit"))
+
+n_obs(fit5)
+performance_roc(fit5)
+model_performance(fit5)
+```
+
+## Model `fit5` parameters
+
+```{r}
+#| echo: true
+
+model_parameters(fit5, exponentiate = TRUE, ci = 0.90)
+```
+
+## What is the `fit5` equation?
+
+```{r}
+#| echo: true
+
+fit5$coefficients ## note: without exponentiation
+```
+
+No one writes an equation for a cubic spline fit. We use Prediction Plots and Nomograms from `fit5_lrm` instead.
+
+## `lrm` version of `fit5`
+
+```{r}
+#| echo: true
+d <- datadist(mov25); options(datadist = "d")
+
+fit5_lrm <- lrm(bechdel ~ gen_1 * romance + rcs(age, 4) + 
+                  mpa3 + reviews + ebert + action,
+                data = mov25, x = TRUE, y = TRUE)
+```
+
+:::{.callout-note title="Key Summaries for `fit5_lrm` include..."}
+
+- C = 0.805, Nagelkerke $R^2$ = 0.386, Brier score = 0.175
+- See next slide for details.
+
+:::
+
+## `fit5_lrm` summaries
+
+```{r}
+#| echo: true
+
+fit5_lrm
+```
+
+## Pseudo $R^2$ summaries
+
+Name | Pseudo-$R^2$ for `fit5` | `fit4` | `fit3` | `fit2` | `fit1`
+:------: | :---------: | :-----: | :-----: | :-----: | :-----:
+Nagelkerke | 0.386 | 0.285 | 0.321 | 0.339 | 0.259
+Tjur's | 0.281 | 0.208 | 0.240 | 0.255 | 0.181
+McFadden | 0.248 | 0.175 | 0.200 | 0.213 | 0.157
+
+```{r}
+#| echo: true
+1 - (fit5_lrm$deviance[2] / fit5_lrm$deviance[1])
+```
+
+## Comparing Model Indices from our 5 models
+
+```{r}
+#| echo: true
+plot(compare_performance(fit1, fit2, fit3, fit4, fit5, metrics = "common"))
+```
+
+## What are the effect sizes in `fit5_lrm`?
+
+```{r}
+#| echo: true
+summary(fit5_lrm)
+```
+
+## Plotting the Effects for `fit5_lrm`
+
+```{r}
+#| echo: true
+
+plot(summary(fit5_lrm))
+```
+
+## Prediction Plots for `fit5_lrm`
+
+```{r}
+#| echo: true
+
+ggplot(Predict(fit5_lrm, fun = plogis))
+```
+
+## Calibration Plot for `fit5_lrm`
+
+```{r}
+#| echo: true
+
+plot(calibrate(fit5_lrm))
+```
+
+## Nomogram for `fit5_lrm`
+
+```{r}
+#| echo: true
+#| fig-height: 7
+
+plot(nomogram(fit5_lrm, fun = plogis, funlabel = "Pr(pass Bechdel)"),
+     lplabel = "Logit(pass Bechdel)")
+```
+
+## Predictions from `fit5` for `love4` movies
+
+```{r}
+#| echo: true
+
+augment(fit5, newdata = love4, type.predict = "response") |>
+  select(movie, .fitted, bechdel, everything()) |>
+  gt() |> tab_options(table.font.size = 20) |>
+  opt_stylize(style = 5, color = "pink")
+```
+
+## CIs around our predictions?
+
+```{r}
+#| echo: true
+augment(fit5, newdata = love4, type.predict = "link", se_fit = TRUE) |>
+  mutate(ci_90_low = .fitted - 1.645 * .se.fit, 
+         ci_90_high = .fitted + 1.645 * .se.fit) |>
+  select(movie, .fitted, .se.fit, ci_90_low, ci_90_high, bechdel, everything())
+```
+
+## Converting from Logit to Probability Scale {.smaller}
+
+For Love Actually, our predicted logit(bechdel pass) = 0.8400, with 90% CI (-0.1852, 1.8653). 
+
+- If logit(bechdel pass) = 0.8400, then odds(bechdel pass) = exp(0.8400), and pr(bechdel pass) = exp(0.8400) / (1 + exp(0.8400)) = 2.3164/3.3164 = 0.698
+- If logit(bechdel pass) = -0.1852, then odds(bechdel pass) = exp(-0.1852), and pr(bechdel pass) = exp(-0.1852) / (1 + exp(-0.1852)) = 0.8309/1.8309 = 0.454
+- If logit(bechdel pass) = 1.8653, then odds(bechdel pass) = exp(1.8653), and pr(bechdel pass) = exp(1.8653) / (1 + exp(1.8653)) = 6.4578/7.4578 = 0.866
+
+Predicted prob(bechdel pass) = 0.698 with 90% confidence interval (0.454, 0.866) for Love Actually using `fit5`.
+
+## Picking a Decision Rule for `fit5`
+
+- Again, using `cutpointr` to select a decision rule which maximizes "Sensitivity" + "Specificity".
+
+```{r}
+#| echo: true
+fit5_aug <- augment(fit5, type.predict = "response")
+
+cp5 <- cutpointr(data = fit5_aug, .fitted, bechdel, 
+                 pos_class = 1, neg_class = 0,
+                 method = maximize_metric, metric = sum_sens_spec)
+
+cp5 |> select(direction, optimal_cutpoint, method, sum_sens_spec) |> 
+  gt() |> tab_options(table.font.size = 24) |> 
+  opt_stylize(style = 2, color = "pink")
+```
+
+## Confusion Matrix for `fit5`
+
+```{r}
+#| echo: true
+cm5 <- confusionMatrix(data = factor(fit5_aug$.fitted >= cp5$optimal_cutpoint),
+          reference = factor(fit5_aug$bechdel == 1), positive = "TRUE")
+cm5
+```
+
+## No severe multicollinearity? (`fit5`)
+
+```{r}
+#| echo: true
+car::vif(fit5)
+rms::vif(fit5_lrm)
+```
+
+## No Cook's distance > 0.5? (`fit5`)
+
+```{r}
+#| echo: true
+#| fig-height: 3.5
+
+max(cooks.distance(fit5))
+
+plot(fit5, which = 4, id.n = 5)
+```
+
+## `fit5` Partial Residual Plots 
+
+Component + Residual plots are not available for models with interactions
+
+## `check_model` for `fit5` (1/4)
+
+```{r}
+#| echo: true
+check_model(fit5, check = c("pp_check", "vif"))
+```
+
+## `check_model` for `fit5` (2/4)
+
+```{r}
+#| echo: true
+check_model(fit5, check = c("outliers", "qq"))
+```
+
+## `check_model` for `fit5` (3/4)
+
+```{r}
+#| echo: true
+check_model(fit5, check = c("binned_residuals"))
+```
+
+## `check_model` for `fit5` (4/4)
+
+- Extra details for the last three plots...
+
+```{r}
+#| echo: true
+
+check_outliers(fit5)
+check_residuals(fit5)
+binned_residuals(fit5)
+```
+
+## Analysis of Deviance for `fit5`
+
+```{r}
+#| echo: true
+anova(fit5_lrm)
+```
+
+## Validating Key Summaries (`fit5`)
+
+```{r}
+#| echo: true
+set.seed(202502065); validate(fit5_lrm, B = 50)
+```
+
+- C = 0.5 + Dxy, so validated C for `fit5` = 0.5 + (0.5141/2) = 0.7571, validated Nagelkerke $R^2$ = 0.2826, and validated Brier score B = 0.2009
+
+# Comparing Our Five Models
+
+## `compare_parameters()` results (1 and 2)
+
+```{r}
+#| echo: true
+compare_parameters(fit1, fit2, ci = 0.90)
+```
+
+## `compare_parameters()` results (3 and 4)
+
+```{r}
+#| echo: true
+compare_parameters(fit3, fit4, ci = 0.90)
+```
+
+## `compare_parameters()` results (2 and 5)
+
+```{r}
+#| echo: true
+compare_parameters(fit2, fit5, ci = 0.90)
+```
+
+## `compare_performance()` results
+
+```{r}
+#| echo: true
+plot(compare_performance(fit1, fit2, fit3, fit4, fit5, metrics = "common"))
+```
+
+## Summary Statistics {.smaller}
+
+Model | `fit1` | `fit2` | `fit3` | `fit4` | `fit5`
+:------------ | ----: | ----: | ----: | ----: | ----: 
+Model df | 2 | 8 | 4 | 2 | 11
+C (unvalidated) | 0.7199 | 0.7921 | 0.7792 | 0.7430 | 0.8050
+C (validated) | 0.7199 | 0.7589 | 0.7713 | 0.7408 | 0.7571
+Nagelkerke $R^2$ (un.) | 0.2590 | 0.3398 | 0.3206 | 0.2853 | 0.3856
+Nagelkerke $R^2$ (val.) | 0.2503 | 0.2661 | 0.3022 | 0.2778 | 0.2826
+Brier (unval.) | 0.1998 | 0.1811 | 0.1845 | 0.1924 | 0.1749
+Brier (val.) | 0.2037 | 0.1989 | 0.1904 | 0.1954 | 0.2009
+Tjur $R^2$ (unval.) | 0.181 | 0.255 | 0.240 | 0.208 | 0.281
+McFadden $R^2$ (un.) | 0.157 | 0.213 | 0.200 | 0.175 | 0.248
+
+## What's not in this example?
+
+- Missing data and single/multiple imputation with `mice` or `aregImpute()`
+- Partitioning the data into training and test samples
+- Evaluation of a logistic regression model in a test sample
+- Using cross-validation in a logistic regression model
+- Fitting a Bayesian logistic regression model
+
+The `support1000` example aims to cover these pieces, in addition to the majority of the material in this `mov25` example.
