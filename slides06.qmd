@@ -114,12 +114,16 @@ fitA$coefficients
 ## Our simple linear regression
 
 ```{r}
+#| echo: true
+
 fitA
 ```
 
 ## Effect Sizes in `fitA`
 
 ```{r}
+#| echo: true
+
 plot(summary(fitA))
 ```
 
@@ -168,6 +172,8 @@ fitB
 ## Effect Sizes in `fitB`
 
 ```{r}
+#| echo: true
+
 plot(summary(fitB))
 ```
 
@@ -384,6 +390,8 @@ fitA_3
 ## Effect Sizes in `fitA_3`
 
 ```{r}
+#| echo: true
+
 plot(summary(fitA_3))
 ```
 
@@ -427,6 +435,8 @@ fitB_3
 ## Effect Sizes in `fitB_3`
 
 ```{r}
+#| echo: true
+
 plot(summary(fitB_3))
 ```
 
@@ -495,6 +505,8 @@ fitC3
 ## Effect Sizes in `fitC3`
 
 ```{r}
+#| echo: true
+
 plot(summary(fitC3))
 ```
 
@@ -526,6 +538,8 @@ fitC4
 ## Effect Sizes in `fitC4`
 
 ```{r}
+#| echo: true
+
 plot(summary(fitC4))
 ```
 
@@ -557,6 +571,8 @@ fitC5
 ## Effect Sizes in `fitC5`
 
 ```{r}
+#| echo: true
+
 plot(summary(fitC5))
 ```
 
@@ -602,6 +618,8 @@ fitB5
 ## Effect Sizes in `fitB5`
 
 ```{r}
+#| echo: true
+
 plot(summary(fitB5))
 ```
 

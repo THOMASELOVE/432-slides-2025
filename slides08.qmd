@@ -1814,9 +1814,8 @@ McFadden $R^2$ (un.) | 0.157 | 0.213 | 0.200 | 0.175 | 0.248
 ## What's not in this example?
 
 - Missing data and single/multiple imputation with `mice` or `aregImpute()`
-- Partitioning the data into training and test samples
+- Partitioning the data into training and test samples 
 - Evaluation of a logistic regression model in a test sample
-- Using cross-validation in a logistic regression model
 - Fitting a Bayesian logistic regression model
 
-The `support1000` example aims to cover these pieces, in addition to the majority of the material in this `mov25` example.
+The `support1000` example covers each of these pieces, in addition to the majority of the material in this `mov25` example.
