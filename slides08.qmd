@@ -41,6 +41,7 @@ library(car)        ## special plot for logistic regression diagnostics
 library(caret)      ## for confusion matrices
 library(cobalt)     ## new today: to split factor into indicator variables
 library(cutpointr)  ## new today: optimizing cutpoints
+library(glue)       ## combining R code results and text in labels
 library(gt)
 library(readxl)     ## read in data from an Excel file
 library(tableone)   ## new today: produce a "simple" Table 1
@@ -398,6 +399,16 @@ fit1_lrm <- lrm(bechdel ~ age + gen_1, data = mov25,
 fit1_lrm
 ```
 
+## ROC Curve Analysis for `fit1`
+
+```{r}
+#| echo: true
+
+plot(performance_roc(fit1)) +
+  labs(title = glue("Model fit1: C statistic = ",
+                    round_half_up(as.numeric(performance_roc(fit1)),3)))
+```
+
 ## Nagelkerke $R^2$ for `fit1`
 
 From the `lrm()` fit (`fit1_lrm`), we have: Nagelkerke $R^2$ = 0.259, which isn't 25.9% of anything, but will be 1 if the fitted model shows as much improvement as possible over the null model.
@@ -426,6 +437,21 @@ fit1_lrm$deviance
 The McFadden $R^2$ (= 0.157 here) and approximates a proportionate reduction in error. 
 
 - Also less useful than a validated Nagelkerke $R^2$ if your goal is to compare two models.
+
+## Key `fit1` Pseudo-$R^2$ measures
+
+```{r}
+#| echo: true
+
+r2_fit1 <- tibble( name = c("McFadden", "Nagelkerke", "Tjur"),
+                   r_sq = c(as.numeric(r2_mcfadden(fit1)[1]),
+                            as.numeric(r2_nagelkerke(fit1)),
+                            as.numeric(r2_tjur(fit1))))
+
+r2_fit1 |> gt() |> fmt_number(decimals = 4) |> 
+  tab_options(table.font.size = 24) |>
+  opt_stylize(style = 2, color = "pink")
+```
 
 ## What are the effect sizes in `fit1_lrm`?
 
@@ -456,6 +482,16 @@ ggplot(Predict(fit1_lrm, fun = plogis), layout = c(1,2))
 #| echo: true
 
 plot(calibrate(fit1_lrm))
+```
+
+## `fit1` Hosmer-Lemeshow test
+
+- This is a somewhat out-of-date method for assessing calibration. Split the data into (here) 5 bins (default is 10) and look for a $\chi^2$ test result that has a large $p$ value.
+
+```{r}
+#| echo: true
+
+performance_hosmer(fit1, n_bins = 5)
 ```
 
 
@@ -525,6 +561,16 @@ cm1 <- confusionMatrix(data = factor(fit1_aug$.fitted >= cp1$optimal_cutpoint),
 cm1
 ```
 
+## Percentage of Correct Predictions
+
+```{r}
+#| echo: true
+
+performance_pcp(fit1, ci = 0.90, method = "Herron")
+```
+
+- Herron's PCP = sum of predicted probabilities where y=1, plus the sum of (1 - predicted probabilities) where y=0, divided by the number of observations.
+
 
 ## `check_model` for `fit1` (1/4)
 
@@ -580,6 +626,17 @@ set.seed(202502061); validate(fit1_lrm, B = 50)
 ```
 
 - C = 0.5 + Dxy, so validated C for `fit1` = 0.5 + (0.4398/2) = 0.7199, validated Nagelkerke $R^2$ = 0.2503, and validated Brier score B = 0.2037
+
+## Cross-Validating `fit1` AUC
+
+If we wanted to obtain a cross-validated (with 5 folds) C statistic (AUC) from a `glm()` fit, we can do so with `performance_accuracy()`...
+
+```{r}
+#| echo: true
+
+set.seed(123451)
+performance_accuracy(fit1, method = "cv", k = 5, ci = 0.90)
+```
 
 # Model `fit2`
 
@@ -645,17 +702,42 @@ fit2_lrm <- lrm(bechdel ~ age + gen_1 + mpa3 + reviews +
 fit2_lrm
 ```
 
-## Pseudo $R^2$ summaries
+## ROC Curve Analysis for `fit2`
 
-Our `fit2` (and `fit1` results) are tabulated below...
+```{r}
+#| echo: true
 
-Name | Pseudo-$R^2$ for `fit2` | Pseudo-$R^2$ for `fit1`
-:------: | :---------: | :----------:
-Nagelkerke | 0.339 | 0.259
-Tjur's | 0.255 | 0.181
-McFadden | 0.213 | 0.157
+plot(performance_roc(fit2)) +
+  labs(title = glue("Model fit2: C statistic = ",
+                    round_half_up(as.numeric(performance_roc(fit2)),3)))
+```
 
-- Remember that when comparing models, we want to use a **validated** Nagelkerke, among these three options.
+## Comparing `fit1` to `fit2` (ROC)
+
+```{r}
+#| echo: true
+
+plot(performance_roc(fit1, fit2)) +
+  scale_color_social()
+```
+
+## Pseudo-$R^2$ measures (models so far)
+
+```{r}
+#| echo: true
+
+r2_res12 <- tibble(name = c("fit1", "fit2"), 
+                 McFadden = c(as.numeric(r2_mcfadden(fit1)[1]),
+                              as.numeric(r2_mcfadden(fit2)[1])),
+                 Nagelkerke = c(as.numeric(r2_nagelkerke(fit1)),
+                                as.numeric(r2_nagelkerke(fit2))),
+                 Tjur = c(as.numeric(r2_tjur(fit1)),
+                          as.numeric(r2_tjur(fit2))))
+
+r2_res12 |> gt() |> fmt_number(decimals = 4) |> 
+  tab_options(table.font.size = 24) |>
+  opt_stylize(style = 4, color = "green")
+```
 
 ## Comparing Model Indices from `fit1` and `fit2`
 
@@ -693,6 +775,16 @@ ggplot(Predict(fit2_lrm, fun = plogis))
 #| echo: true
 
 plot(calibrate(fit2_lrm))
+```
+
+## `fit2` Hosmer-Lemeshow test
+
+- Here we'll revert to the default choice of 10 bins.
+
+```{r}
+#| echo: true
+
+performance_hosmer(fit2, n_bins = 10)
 ```
 
 ## Nomogram for `fit2_lrm`
@@ -760,6 +852,16 @@ cp2 |> select(direction, optimal_cutpoint, method, sum_sens_spec) |>
 cm2 <- confusionMatrix(data = factor(fit2_aug$.fitted >= cp2$optimal_cutpoint),
           reference = factor(fit2_aug$bechdel == 1), positive = "TRUE")
 cm2
+```
+
+## `fit2` PCP
+
+Percentage of Correct Predictions (with 0.5 decision rule)
+
+```{r}
+#| echo: true
+
+performance_pcp(fit2, ci = 0.90, method = "Herron")
 ```
 
 # Checking Assumptions in Logistic Regression Models
@@ -929,6 +1031,16 @@ set.seed(202502062); validate(fit2_lrm, B = 50)
 
 - C = 0.5 + Dxy, so validated C for `fit2` = 0.5 + (0.5177/2) = 0.7589, validated Nagelkerke $R^2$ = 0.2661, and validated Brier score B = 0.1989
 
+## Cross-Validating AUC (models so far)
+
+```{r}
+#| echo: true
+
+set.seed(123452)
+performance_accuracy(fit1, method = "cv", k = 5, ci = 0.90)
+performance_accuracy(fit2, method = "cv", k = 5, ci = 0.90)
+```
+
 # Model `fit3`
 
 ## Preparing to Search through our predictors
@@ -1020,17 +1132,45 @@ fit3_lrm <- lrm(bechdel ~ gen_1 + reviews + ebert + action,
 fit3_lrm
 ```
 
-## Pseudo $R^2$ summaries
-
-Name | Pseudo-$R^2$ for `fit3` | `fit2` | `fit1`
-:------: | :---------: | :-----: | :-----:
-Nagelkerke | 0.321 | 0.339 | 0.259
-Tjur's | 0.240 | 0.255 | 0.181
-McFadden | 0.200 | 0.213 | 0.157
+## ROC Curve Analysis for `fit3`
 
 ```{r}
 #| echo: true
-1 - (fit3_lrm$deviance[2] / fit3_lrm$deviance[1])
+
+plot(performance_roc(fit3)) +
+  labs(title = glue("Model fit3: C statistic = ",
+                    round_half_up(as.numeric(performance_roc(fit3)),3)))
+```
+
+## ROC curves for models so far
+
+```{r}
+#| echo: true
+
+plot(performance_roc(fit1, fit2, fit3)) +
+  scale_color_social()
+```
+
+## Pseudo-$R^2$ measures (models so far)
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+r2_res123 <- tibble(name = c("fit1", "fit2", "fit3"), 
+                 McFadden = c(as.numeric(r2_mcfadden(fit1)[1]),
+                              as.numeric(r2_mcfadden(fit2)[1]),
+                              as.numeric(r2_mcfadden(fit3)[1])),
+                 Nagelkerke = c(as.numeric(r2_nagelkerke(fit1)),
+                                as.numeric(r2_nagelkerke(fit2)),
+                                as.numeric(r2_nagelkerke(fit3))),
+                 Tjur = c(as.numeric(r2_tjur(fit1)),
+                          as.numeric(r2_tjur(fit2)),
+                          as.numeric(r2_tjur(fit3))))
+
+r2_res123 |> gt() |> fmt_number(decimals = 4) |> 
+  tab_options(table.font.size = 24) |>
+  opt_stylize(style = 4, color = "green")
 ```
 
 ## Comparing Model Indices from our 3 models
@@ -1069,6 +1209,14 @@ ggplot(Predict(fit3_lrm, fun = plogis))
 #| echo: true
 
 plot(calibrate(fit3_lrm))
+```
+
+## `fit3` Hosmer-Lemeshow test
+
+```{r}
+#| echo: true
+
+performance_hosmer(fit3, n_bins = 10)
 ```
 
 ## Nomogram for `fit3_lrm`
@@ -1136,6 +1284,16 @@ cp3 |> select(direction, optimal_cutpoint, method, sum_sens_spec) |>
 cm3 <- confusionMatrix(data = factor(fit3_aug$.fitted >= cp3$optimal_cutpoint),
           reference = factor(fit3_aug$bechdel == 1), positive = "TRUE")
 cm3
+```
+
+## `fit3` PCP
+
+Percentage of Correct Predictions (with 0.5 decision rule)
+
+```{r}
+#| echo: true
+
+performance_pcp(fit3, ci = 0.90, method = "Herron")
 ```
 
 ## No severe multicollinearity? (`fit3`)
@@ -1219,6 +1377,17 @@ set.seed(202502063); validate(fit3_lrm, B = 50)
 ```
 
 - C = 0.5 + Dxy, so validated C for `fit3` = 0.5 + (0.5425/2) = 0.7713, validated Nagelkerke $R^2$ = 0.3022, and validated Brier score B = 0.1904
+
+## Cross-Validating AUC (models so far)
+
+```{r}
+#| echo: true
+
+set.seed(123453)
+performance_accuracy(fit1, method = "cv", k = 5, ci = 0.90)
+performance_accuracy(fit2, method = "cv", k = 5, ci = 0.90)
+performance_accuracy(fit3, method = "cv", k = 5, ci = 0.90)
+```
 
 # Model `fit4`
 
@@ -1310,17 +1479,48 @@ fit4_lrm <- lrm(bechdel ~ gen_1 + reviews,
 fit4_lrm
 ```
 
-## Pseudo $R^2$ summaries
-
-Name | Pseudo-$R^2$ for `fit4` | `fit3` | `fit2` | `fit1`
-:------: | :---------: | :-----: | :-----: | :-----:
-Nagelkerke | 0.285 | 0.321 | 0.339 | 0.259
-Tjur's | 0.208 | 0.240 | 0.255 | 0.181
-McFadden | 0.175 | 0.200 | 0.213 | 0.157
+## ROC Curve Analysis for `fit4`
 
 ```{r}
 #| echo: true
-1 - (fit4_lrm$deviance[2] / fit4_lrm$deviance[1])
+
+plot(performance_roc(fit4)) +
+  labs(title = glue("Model fit4: C statistic = ",
+                    round_half_up(as.numeric(performance_roc(fit4)),3)))
+```
+
+## ROC curves for models so far
+
+```{r}
+#| echo: true
+
+plot(performance_roc(fit1, fit2, fit3, fit4)) +
+  scale_color_social()
+```
+
+## Pseudo-$R^2$ measures (models so far)
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+r2_res1234 <- tibble(name = c("fit1", "fit2", "fit3", "fit4"), 
+                 McFadden = c(as.numeric(r2_mcfadden(fit1)[1]),
+                              as.numeric(r2_mcfadden(fit2)[1]),
+                              as.numeric(r2_mcfadden(fit3)[1]),
+                              as.numeric(r2_mcfadden(fit4)[1])),
+                 Nagelkerke = c(as.numeric(r2_nagelkerke(fit1)),
+                                as.numeric(r2_nagelkerke(fit2)),
+                                as.numeric(r2_nagelkerke(fit3)),
+                                as.numeric(r2_nagelkerke(fit4))),
+                 Tjur = c(as.numeric(r2_tjur(fit1)),
+                          as.numeric(r2_tjur(fit2)),
+                          as.numeric(r2_tjur(fit3)),
+                          as.numeric(r2_tjur(fit4))))
+
+r2_res1234 |> gt() |> fmt_number(decimals = 4) |> 
+  tab_options(table.font.size = 24) |>
+  opt_stylize(style = 4, color = "green")
 ```
 
 ## Comparing Model Indices from our 4 models
@@ -1359,6 +1559,14 @@ ggplot(Predict(fit4_lrm, fun = plogis), layout = c(1,2))
 #| echo: true
 
 plot(calibrate(fit4_lrm))
+```
+
+## `fit4` Hosmer-Lemeshow test
+
+```{r}
+#| echo: true
+
+performance_hosmer(fit4, n_bins = 10)
 ```
 
 ## Nomogram for `fit4_lrm`
@@ -1426,6 +1634,16 @@ cp4 |> select(direction, optimal_cutpoint, method, sum_sens_spec) |>
 cm4 <- confusionMatrix(data = factor(fit4_aug$.fitted >= cp4$optimal_cutpoint),
           reference = factor(fit4_aug$bechdel == 1), positive = "TRUE")
 cm4
+```
+
+## `fit4` PCP
+
+Percentage of Correct Predictions (with 0.5 decision rule)
+
+```{r}
+#| echo: true
+
+performance_pcp(fit4, ci = 0.90, method = "Herron")
 ```
 
 ## No severe multicollinearity? (`fit4`)
@@ -1510,6 +1728,15 @@ set.seed(202502064); validate(fit4_lrm, B = 50)
 
 - C = 0.5 + Dxy, so validated C for `fit4` = 0.5 + (0.4815/2) = 0.7408, validated Nagelkerke $R^2$ = 0.2778, and validated Brier score B = 0.1954
 
+## Cross-Validating AUC for `fit4`
+
+```{r}
+#| echo: true
+
+set.seed(123454)
+performance_accuracy(fit4, method = "cv", k = 5, ci = 0.90)
+```
+
 # Model `fit5`
 
 ## Spearman $\rho^2$ plot from `fit2`
@@ -1577,17 +1804,51 @@ fit5_lrm <- lrm(bechdel ~ gen_1 * romance + rcs(age, 4) +
 fit5_lrm
 ```
 
-## Pseudo $R^2$ summaries
-
-Name | Pseudo-$R^2$ for `fit5` | `fit4` | `fit3` | `fit2` | `fit1`
-:------: | :---------: | :-----: | :-----: | :-----: | :-----:
-Nagelkerke | 0.386 | 0.285 | 0.321 | 0.339 | 0.259
-Tjur's | 0.281 | 0.208 | 0.240 | 0.255 | 0.181
-McFadden | 0.248 | 0.175 | 0.200 | 0.213 | 0.157
+## ROC Curve Analysis for `fit5`
 
 ```{r}
 #| echo: true
-1 - (fit5_lrm$deviance[2] / fit5_lrm$deviance[1])
+
+plot(performance_roc(fit5)) +
+  labs(title = glue("Model fit5: C statistic = ",
+                    round_half_up(as.numeric(performance_roc(fit5)),3)))
+```
+
+## ROC curves for all 5 models
+
+```{r}
+#| echo: true
+
+plot(performance_roc(fit1, fit2, fit3, fit4, fit5)) +
+  scale_color_social()
+```
+
+## Pseudo-$R^2$ measures (all 5 models)
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+r2_res12345 <- tibble(name = c("fit1", "fit2", "fit3", "fit4", "fit5"), 
+                 McFadden = c(as.numeric(r2_mcfadden(fit1)[1]),
+                              as.numeric(r2_mcfadden(fit2)[1]),
+                              as.numeric(r2_mcfadden(fit3)[1]),
+                              as.numeric(r2_mcfadden(fit4)[1]),
+                              as.numeric(r2_mcfadden(fit5)[1])),
+                 Nagelkerke = c(as.numeric(r2_nagelkerke(fit1)),
+                                as.numeric(r2_nagelkerke(fit2)),
+                                as.numeric(r2_nagelkerke(fit3)),
+                                as.numeric(r2_nagelkerke(fit4)),
+                                as.numeric(r2_nagelkerke(fit5))),
+                 Tjur = c(as.numeric(r2_tjur(fit1)),
+                          as.numeric(r2_tjur(fit2)),
+                          as.numeric(r2_tjur(fit3)),
+                          as.numeric(r2_tjur(fit4)),
+                          as.numeric(r2_tjur(fit5))))
+
+r2_res12345 |> gt() |> fmt_number(decimals = 4) |> 
+  tab_options(table.font.size = 24) |>
+  opt_stylize(style = 4, color = "green")
 ```
 
 ## Comparing Model Indices from our 5 models
@@ -1626,6 +1887,14 @@ ggplot(Predict(fit5_lrm, fun = plogis))
 #| echo: true
 
 plot(calibrate(fit5_lrm))
+```
+
+## `fit5` Hosmer-Lemeshow test
+
+```{r}
+#| echo: true
+
+performance_hosmer(fit5, n_bins = 10)
 ```
 
 ## Nomogram for `fit5_lrm`
@@ -1693,6 +1962,16 @@ cp5 |> select(direction, optimal_cutpoint, method, sum_sens_spec) |>
 cm5 <- confusionMatrix(data = factor(fit5_aug$.fitted >= cp5$optimal_cutpoint),
           reference = factor(fit5_aug$bechdel == 1), positive = "TRUE")
 cm5
+```
+
+## `fit5` PCP
+
+Percentage of Correct Predictions (with 0.5 decision rule)
+
+```{r}
+#| echo: true
+
+performance_pcp(fit5, ci = 0.90, method = "Herron")
 ```
 
 ## No severe multicollinearity? (`fit5`)
@@ -1767,6 +2046,15 @@ set.seed(202502065); validate(fit5_lrm, B = 50)
 
 - C = 0.5 + Dxy, so validated C for `fit5` = 0.5 + (0.5141/2) = 0.7571, validated Nagelkerke $R^2$ = 0.2826, and validated Brier score B = 0.2009
 
+## Cross-Validating AUC for `fit5`
+
+```{r}
+#| echo: true
+
+set.seed(123455)
+performance_accuracy(fit5, method = "cv", k = 5, ci = 0.90)
+```
+
 # Comparing Our Five Models
 
 ## `compare_parameters()` results (1 and 2)
@@ -1810,6 +2098,15 @@ Brier (unval.) | 0.1998 | 0.1811 | 0.1845 | 0.1924 | 0.1749
 Brier (val.) | 0.2037 | 0.1989 | 0.1904 | 0.1954 | 0.2009
 Tjur $R^2$ (unval.) | 0.181 | 0.255 | 0.240 | 0.208 | 0.281
 McFadden $R^2$ (un.) | 0.157 | 0.213 | 0.200 | 0.175 | 0.248
+
+## Predictions for `love4` movies
+
+Movie | `bechdel` | `fit1` | `fit2` | `fit3` | `fit4` | `fit5`
+:--------------: | :---: | :---: | :---: | :---: | :---: | :---: 
+The Manchurian Candidate | 0 | 0.283 | 0.344 | 0.271 | 0.332 | 0.152
+Die Hard | 0 | 0.394 | 0.284 | 0.341 | 0.351 | 0.343
+Love Actually | 1 | 0.465 | 0.675 | 0.520 | 0.484 | 0.698
+Sense & Sensibility | 1 | 0.925 | 0.908 | 0.876 | 0.903 | 1.000
 
 ## What's not in this example?
 
