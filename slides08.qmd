@@ -2116,3 +2116,11 @@ Sense & Sensibility | 1 | 0.925 | 0.908 | 0.876 | 0.903 | 1.000
 - Fitting a Bayesian logistic regression model
 
 The `support1000` example covers each of these pieces, in addition to the majority of the material in this `mov25` example.
+
+## Session Information
+
+```{r}
+#| echo: true
+
+xfun::session_info()
+```
