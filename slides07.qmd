@@ -259,8 +259,8 @@ What happens when we add a non-linear term?
 
 Adding an interaction (product term) depends on the main effects of the predictors we are interacting
 
-- If the product term's predictors have df1 and df2 degrees of freedom, product term adds df1 $\times$ df2 degrees of freedom.
-    - An interaction of a binary and quantitative variable adds 1 $\times$ 1 = 1 more df to the main effects model.
+- If the product term's predictors have df1 and df2 degrees of freedom, product term adds df1 x df2 degrees of freedom.
+    - An interaction of a binary and quantitative variable adds 1 x 1 = 1 more df to the main effects model.
 - When we use a quantitative variable in a spline and interaction, we'll do the interaction on the main effect, not the spline.
 
 ## Spearman's $\rho^2$ plot: A smart first step?
@@ -580,12 +580,12 @@ To delve into the details of how well this complex model works, and to help plot
 
 - In Project A, we expect some results that are most easily obtained using `lm()` and others that are most easily obtained using `ols()`.
 
-## Next Time: Class 08 (2025-02-06)
+## Next Example: Class 08 (2025-02-06)
 
-- Focus on a logistic regression scenario, and new data set
+- Focus on logistic regression with a new data set
   - Thinking about various pseudo-$R^2$ approaches
   - Developing an optimal cutpoint for a confusion matrix
   - Brier scores and other measures of calibration in logistic regression
   - Checking assumptions in logistic regression
-  - Multiple imputation with `mice` and with `aregImpute()`
+  - Just about everything we might want to do...
 
