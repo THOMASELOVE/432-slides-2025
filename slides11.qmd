@@ -1,0 +1,18 @@
+---
+title: "432 Class 11"
+author: Thomas E. Love, Ph.D.
+date: "2025-02-18"
+format:
+  revealjs: 
+    theme: simple
+    embed-resources: true
+    self-contained: true
+    slide-number: true
+    footnotes-hover: true
+    preview-links: auto
+    date-format: iso
+    logo: 432-2025-pic.png
+    footer: "432 Class 11 | 2025-02-18 | <https://thomaselove.github.io/432-2025/>"
+---
+
+# In class 11, we'll return to [the Class 10 slides](https://thomaselove.github.io/432-slides-2025/slides10.html).

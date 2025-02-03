@@ -1,0 +1,18 @@
+---
+title: "432 Class 09"
+author: Thomas E. Love, Ph.D.
+date: "2025-02-11"
+format:
+  revealjs: 
+    theme: simple
+    embed-resources: true
+    self-contained: true
+    slide-number: true
+    footnotes-hover: true
+    preview-links: auto
+    date-format: iso
+    logo: 432-2025-pic.png
+    footer: "432 Class 09 | 2025-02-11 | <https://thomaselove.github.io/432-2025/>"
+---
+
+# In class 9, we'll return to [the Class 8 slides](https://thomaselove.github.io/432-slides-2025/slides08.html).
