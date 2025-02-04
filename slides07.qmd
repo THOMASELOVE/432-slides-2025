@@ -426,8 +426,10 @@ plot(anova(fit2), what = "partial R2", sort = "ascending")
 
 ```{r}
 #| echo: true
-set.seed(432); validate(fit2)
+set.seed(432); validate(fit2, method = "boot", B = 300)
 ```
+
+- I'm making a blanket recommendation that you run 300 bootstrap validations unless I've told you specifically to do something else.
 
 ## `summary` results for `fit2`
 
@@ -480,7 +482,7 @@ plot(nomogram(fit2))
 
 1. Find the value of each predictor on its provided line, and identify the "points" for that predictor by drawing a vertical line up to the "Points".
 2. Then sum up the points over all predictors to obtain "Total Points".
-3. Draw a vertical line down from the "Total Points" to the "Linear Predictor" to get the predicted `cesd` for this subject.
+3. Draw a vertical line from "Total Points" to "Linear Predictor" to obtain predicted `cesd`.
 
 The nomogram shows modeled effects and their impact on the predicted outcome.
 
@@ -502,7 +504,8 @@ Suppose we have a new **individual subject** named Grace.
 grace <- tibble(sex = "female", mcs = 40, pcs = 50, 
                 pss_fr = 7, age = 45, subst = "cocaine")
 
-predict(fit2, newdata = grace, conf.int = 0.95, conf.type = "individual")
+predict(fit2, newdata = grace, conf.int = 0.95, conf.type = "individual") |>
+  as_vector()
 ```
 
 Our predicted `cesd` for Grace is 27.89, with 95% **prediction interval** (10.65, 45.13).
@@ -513,7 +516,8 @@ Predict **mean** `cesd` of a set of subjects with Grace's predictor values, alon
 
 ```{r}
 #| echo: true
-predict(fit2, newdata = grace, conf.int = 0.95, conf.type = "mean")
+predict(fit2, newdata = grace, conf.int = 0.95, conf.type = "mean") |>
+  as_vector()
 ```
 
 - Confidence interval (24.73, 31.04) is much narrower than prediction interval (10.65, 45.13).
