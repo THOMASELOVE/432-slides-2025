@@ -33,8 +33,7 @@ format:
 #| message: false
 knitr::opts_chunk$set(comment = NA)
 
-library(janitor)
-library(naniar)
+library(janitor); library(naniar)
 library(bestglm)    ## best subsets search using logistic regression
 library(broom)
 library(car)        ## special plot for logistic regression diagnostics
@@ -46,8 +45,7 @@ library(gt)
 library(readxl)     ## read in data from an Excel file
 library(tableone)   ## new today: produce a "simple" Table 1
 library(rms)              
-library(easystats)
-library(tidyverse)
+library(easystats); library(tidyverse)
 
 theme_set(theme_bw()) 
 ```
@@ -622,10 +620,10 @@ Remember that this result shows sequential tests, and if you change the order of
 
 ```{r}
 #| echo: true
-set.seed(202502061); validate(fit1_lrm, B = 50)
+set.seed(202502061); validate(fit1_lrm, B = 300)
 ```
 
-- C = 0.5 + Dxy, so validated C for `fit1` = 0.5 + (0.4398/2) = 0.7199, validated Nagelkerke $R^2$ = 0.2503, and validated Brier score B = 0.2037
+- C = 0.5 + Dxy, so validated C for `fit1` = 0.5 + (0.4366/2) = 0.7183, validated Nagelkerke $R^2$ = 0.2469, and validated Brier score B = 0.2042
 
 ## Cross-Validating `fit1` AUC
 
@@ -1026,10 +1024,10 @@ Remember that this result shows sequential tests, and if you change the order of
 
 ```{r}
 #| echo: true
-set.seed(202502062); validate(fit2_lrm, B = 50)
+set.seed(202502062); validate(fit2_lrm, B = 300)
 ```
 
-- C = 0.5 + Dxy, so validated C for `fit2` = 0.5 + (0.5177/2) = 0.7589, validated Nagelkerke $R^2$ = 0.2661, and validated Brier score B = 0.1989
+- C = 0.5 + Dxy, so validated C for `fit2` = 0.5 + (0.5161/2) = 0.7581, validated Nagelkerke $R^2$ = 0.2674, and validated Brier score B = 0.1989
 
 ## Cross-Validating AUC (models so far)
 
@@ -1373,10 +1371,10 @@ Remember that this result shows sequential tests, and if you change the order of
 
 ```{r}
 #| echo: true
-set.seed(202502063); validate(fit3_lrm, B = 50)
+set.seed(202502063); validate(fit3_lrm, B = 300)
 ```
 
-- C = 0.5 + Dxy, so validated C for `fit3` = 0.5 + (0.5425/2) = 0.7713, validated Nagelkerke $R^2$ = 0.3022, and validated Brier score B = 0.1904
+- C = 0.5 + Dxy, so validated C for `fit3` = 0.5 + (0.5339/2) = 0.7670, validated Nagelkerke $R^2$ = 0.2905, and validated Brier score B = 0.1927
 
 ## Cross-Validating AUC (models so far)
 
@@ -1723,10 +1721,10 @@ Remember that this result shows sequential tests, and if you change the order of
 
 ```{r}
 #| echo: true
-set.seed(202502064); validate(fit4_lrm, B = 50)
+set.seed(202502064); validate(fit4_lrm, B = 300)
 ```
 
-- C = 0.5 + Dxy, so validated C for `fit4` = 0.5 + (0.4815/2) = 0.7408, validated Nagelkerke $R^2$ = 0.2778, and validated Brier score B = 0.1954
+- C = 0.5 + Dxy, so validated C for `fit4` = 0.5 + (0.4822/2) = 0.7411, validated Nagelkerke $R^2$ = 0.2709, and validated Brier score B = 0.1974
 
 ## Cross-Validating AUC for `fit4`
 
@@ -2041,10 +2039,10 @@ anova(fit5_lrm)
 
 ```{r}
 #| echo: true
-set.seed(202502065); validate(fit5_lrm, B = 50)
+set.seed(202502065); validate(fit5_lrm, B = 300)
 ```
 
-- C = 0.5 + Dxy, so validated C for `fit5` = 0.5 + (0.5141/2) = 0.7571, validated Nagelkerke $R^2$ = 0.2826, and validated Brier score B = 0.2009
+- C = 0.5 + Dxy, so validated C for `fit5` = 0.5 + (0.5197/2) = 0.7599, validated Nagelkerke $R^2$ = 0.2906, and validated Brier score B = 0.1993
 
 ## Cross-Validating AUC for `fit5`
 
@@ -2091,11 +2089,11 @@ Model | `fit1` | `fit2` | `fit3` | `fit4` | `fit5`
 :------------ | ----: | ----: | ----: | ----: | ----: 
 Model df | 2 | 8 | 4 | 2 | 11
 C (unvalidated) | 0.7199 | 0.7921 | 0.7792 | 0.7430 | 0.8050
-C (validated) | 0.7199 | 0.7589 | 0.7713 | 0.7408 | 0.7571
+C (validated) | 0.7183 | 0.7581 | 0.7670 | 0.7411 | 0.7599
 Nagelkerke $R^2$ (un.) | 0.2590 | 0.3398 | 0.3206 | 0.2853 | 0.3856
-Nagelkerke $R^2$ (val.) | 0.2503 | 0.2661 | 0.3022 | 0.2778 | 0.2826
+Nagelkerke $R^2$ (val.) | 0.2469 | 0.2674 | 0.2905 | 0.2709 | 0.2906
 Brier (unval.) | 0.1998 | 0.1811 | 0.1845 | 0.1924 | 0.1749
-Brier (val.) | 0.2037 | 0.1989 | 0.1904 | 0.1954 | 0.2009
+Brier (val.) | 0.2042 | 0.1989 | 0.1927 | 0.1974 | 0.1993
 Tjur $R^2$ (unval.) | 0.181 | 0.255 | 0.240 | 0.208 | 0.281
 McFadden $R^2$ (un.) | 0.157 | 0.213 | 0.200 | 0.175 | 0.248
 
