@@ -44,6 +44,7 @@ library(glue)       ## combining R code results and text in labels
 library(gt)
 library(readxl)     ## read in data from an Excel file
 library(tableone)   ## new today: produce a "simple" Table 1
+library(yardstick)  ## for calculations in test sample
 library(rms)              
 library(easystats); library(tidyverse)
 
@@ -474,6 +475,13 @@ plot(summary(fit1_lrm))
 ggplot(Predict(fit1_lrm, fun = plogis), layout = c(1,2))
 ```
 
+## The Calibration Plot
+
+- "Apparent" line indicates what we would get if we just looked at a loess smooth based on what we observe in the data.
+- "Bias-corrected" line makes full use of the bootstrap replications to obtain estimates, and this provides a better comparison against the ideal line.
+- "Ideal" line just shows predicted probability = actual probability.
+
+
 ## Calibration Plot for `fit1_lrm`
 
 ```{r}
@@ -483,14 +491,22 @@ set.seed(4321231)
 plot(calibrate(fit1_lrm, method = "boot", B = 300))
 ```
 
+## Summarizing the Calibration Results
+
+In addition, we obtain three summaries we could (and will, in time) use to compare models...
+
+- the mean absolute error across our 196 movies: 0.018
+- the mean squared error: 0.00046, although we often look at its square root: 0.021
+- the 90th percentile of absolute error: 0.036
+
 ## `fit1` Hosmer-Lemeshow test
 
-- This is a somewhat out-of-date method for assessing calibration. Split the data into (here) 5 bins (default is 10) and look for a $\chi^2$ test result that has a large $p$ value.
+- This is a somewhat out-of-date method for assessing calibration. Split the data into (here) 10 bins (the default) and look for a $\chi^2$ test result that has a large $p$ value.
 
 ```{r}
 #| echo: true
 
-performance_hosmer(fit1, n_bins = 5)
+performance_hosmer(fit1, n_bins = 10)
 ```
 
 
@@ -1738,6 +1754,14 @@ performance_accuracy(fit4, method = "cv", k = 5, ci = 0.90)
 
 # Model `fit5`
 
+## Idea for building `fit5` {.smaller}
+
+Suppose we want to include main effects of all 7 predictors we included in `fit2`, but now we want to consider adding some non-linear terms.
+
+- But we don't have any prior inclination to include any particular non-linear option.
+- We'll set aside (for now) the issue that we may not have the sample size to do this well, at least without validating our results.
+- One appealing approach (which reduces our bias and may make the resulting model validate better in new data) is to use a Spearman $\rho^2$ plot to help us prioritize which terms we might consider using non-linear terms to fit.
+
 ## Spearman $\rho^2$ plot from `fit2`
 
 ```{r}
@@ -1745,6 +1769,32 @@ performance_accuracy(fit4, method = "cv", k = 5, ci = 0.90)
 plot(spearman2(bechdel ~ age + gen_1 + mpa3 + reviews + 
     ebert + romance + action, data = mov25))
 ```
+
+## Ordering from Spearman $\rho^2$ plot {.smaller}
+
+This is the order of the predictors (`gen_1` highest) on the Spearman $\rho^2$ plot on the previous slide:
+
+Predictor | Description
+--------: | :-----------------------------------------------------------
+`gen_1` | Binary indicator (F/M) of 1st star's presenting gender
+`romance` | Binary indicator (1/0): does genre list include romance?
+`age` | Quantitative: age of film (2025 - release date)
+`action` | Binary indicator (1/0): does genre list include action?
+`ebert` | Quantitative: rating from RogerEbert.com (1-4 stars)
+`reviews` | Quantitative: # of critic reviews on Rotten Tomatoes
+`mpa3` | Multi-categorical: 3 levels of MPA ratings (PG-13, R, Other)
+
+## What might we do?
+
+- `gen_1` is a binary factor (categorical variable = interactions?)
+- `romance` is also a binary factor
+- `age` is quantitative
+
+We might consider including:
+
+- an interaction between `gen_1` and `romance`
+- a spline for `age`
+- and maybe other things, too...
 
 ## Model `fit5`: add two non-linear terms
 
@@ -1925,7 +1975,8 @@ augment(fit5, newdata = love4, type.predict = "response") |>
 augment(fit5, newdata = love4, type.predict = "link", se_fit = TRUE) |>
   mutate(ci_90_low = .fitted - 1.645 * .se.fit, 
          ci_90_high = .fitted + 1.645 * .se.fit) |>
-  select(movie, .fitted, .se.fit, ci_90_low, ci_90_high, bechdel, everything())
+  select(movie, .fitted, .se.fit, ci_90_low, ci_90_high, 
+         bechdel, everything())
 ```
 
 ## Converting from Logit to Probability Scale {.smaller}
@@ -2057,45 +2108,45 @@ performance_accuracy(fit5, method = "cv", k = 5, ci = 0.90)
 
 # Comparing Our Five Models
 
-## `compare_parameters()` results (1 and 2)
+## `compare_parameters()` (1 and 2)
 
 ```{r}
 #| echo: true
 compare_parameters(fit1, fit2, ci = 0.90)
 ```
 
-## `compare_parameters()` results (3 and 4)
+## `compare_parameters()` (3 and 4)
 
 ```{r}
 #| echo: true
 compare_parameters(fit3, fit4, ci = 0.90)
 ```
 
-## `compare_parameters()` results (2 and 5)
+## `compare_parameters()` (2 and 5)
 
 ```{r}
 #| echo: true
 compare_parameters(fit2, fit5, ci = 0.90)
 ```
 
-## `compare_performance()` results
+## `compare_performance()` plot
 
 ```{r}
 #| echo: true
 plot(compare_performance(fit1, fit2, fit3, fit4, fit5, metrics = "common"))
 ```
 
-## Summary Statistics {.smaller}
+## A Few Summary Statistics {.smaller}
 
 Model | `fit1` | `fit2` | `fit3` | `fit4` | `fit5`
 :------------ | ----: | ----: | ----: | ----: | ----: 
 Model df | 2 | 8 | 4 | 2 | 11
 C (unvalidated) | 0.7199 | 0.7921 | 0.7792 | 0.7430 | 0.8050
 C (validated) | 0.7183 | 0.7581 | 0.7670 | 0.7411 | 0.7599
-Nagelkerke $R^2$ (un.) | 0.2590 | 0.3398 | 0.3206 | 0.2853 | 0.3856
+Nagelkerke $R^2$ (unv.) | 0.2590 | 0.3398 | 0.3206 | 0.2853 | 0.3856
 Nagelkerke $R^2$ (val.) | 0.2469 | 0.2674 | 0.2905 | 0.2709 | 0.2906
 Tjur $R^2$ (unval.) | 0.181 | 0.255 | 0.240 | 0.208 | 0.281
-McFadden $R^2$ (un.) | 0.157 | 0.213 | 0.200 | 0.175 | 0.248
+McFadden $R^2$ (unv.) | 0.157 | 0.213 | 0.200 | 0.175 | 0.248
 
 ## Confusion Matrix Summaries {.smaller}
 
@@ -2114,15 +2165,15 @@ Kappa | 0.356 | 0.458 | 0.472 | 0.452 | 0.492
 Model | `fit1` | `fit2` | `fit3` | `fit4` | `fit5`
 :------------ | ----: | ----: | ----: | ----: | ----: 
 Mean absolute error | 0.018 | 0.026 | 0.018 | 0.040 | 0.031
-Mean squared error | 0.00046 | 0.00112 | 0.00052 | 0.00248 | 0.00139
-0.9 quant abs error  | 0.036 | 0.053 | 0.033 | 0.084 | 0.061
-Hosmer-Lemeshow *p* | 0.747 | 0.358 | 0.265 | 0.186 | 0.617
-Brier (unval.) | 0.1998 | 0.1811 | 0.1845 | 0.1924 | 0.1749
+Root mean squared error | 0.021 | 0.033 | 0.023 | 0.050 | 0.037
+0.9 quantile abs error  | 0.036 | 0.053 | 0.033 | 0.084 | 0.061
+Hosmer-Lemeshow *p* | 0.601 | 0.358 | 0.265 | 0.186 | 0.617
+Brier (unvalidated) | 0.1998 | 0.1811 | 0.1845 | 0.1924 | 0.1749
 Validated Brier | 0.2042 | 0.1989 | 0.1927 | 0.1974 | 0.1993
-% Correct Preds. | 0.6002 | 0.6362 | 0.6288 | 0.6134 | 0.6491
-Cross-Val AUC | 0.7293 | 0.7594 | 0.7433 | 0.7367 | 0.7242
+% Correct Preds. (PCP) | 0.6002 | 0.6362 | 0.6288 | 0.6134 | 0.6491
+Cross-Validated AUC | 0.7293 | 0.7594 | 0.7433 | 0.7367 | 0.7242
 
-## Predictions for `love4` movies
+## Predictions for `love4` movies {.smaller}
 
 Movie | `bechdel` | `fit1` | `fit2` | `fit3` | `fit4` | `fit5`
 :--------------: | :---: | :---: | :---: | :---: | :---: | :---: 
@@ -2130,12 +2181,132 @@ The Manchurian Candidate | 0 | 0.283 | 0.344 | 0.271 | 0.332 | 0.152
 Die Hard | 0 | 0.394 | 0.284 | 0.341 | 0.351 | 0.343
 Love Actually | 1 | 0.465 | 0.675 | 0.520 | 0.484 | 0.698
 Sense & Sensibility | 1 | 0.925 | 0.908 | 0.876 | 0.903 | 1.000
+PCP Score | -- | 0.678 | 0.739 | 0.696 | 0.676 | 0.801
+
+- PCP Score for `fit1` = [(1 -.283) + (1 - .394) + .465 + .925] / 4 = 0.67825
+- PCP Score for `fit2` = [(1 -.344) + (1 - .284) + .675 + .908] / 4 = 0.73875
+
+etc.
+
+# Adding in a "test sample" of 50 more movies
+
+## A Test Sample for our 5 models
+
+```{r}
+#| echo: true
+
+mov_extra <- read_csv("c08/data/movies_extra.csv", show_col_types = FALSE) |>
+  mutate(gen_1 = factor(gen_1), mpa3 = factor(mpa3))
+
+mov_extra
+```
+
+## The 50 Movies in `mov_extra` {.smaller}
+
+```{r}
+mov_extra$movie
+```
+
+## Predicting into the Test Sample
+
+```{r}
+#| echo: true
+
+fit1_test <- augment(fit1, newdata = mov_extra, type.predict = "response")
+fit2_test <- augment(fit2, newdata = mov_extra, type.predict = "response")
+fit3_test <- augment(fit3, newdata = mov_extra, type.predict = "response")
+fit4_test <- augment(fit4, newdata = mov_extra, type.predict = "response")
+fit5_test <- augment(fit5, newdata = mov_extra, type.predict = "response")
+
+all_fits <- bind_rows(fit1_test, fit2_test, fit3_test, 
+                      fit4_test, fit5_test) |>
+  mutate(model = c(rep("fit1", 50), rep("fit2", 50), rep("fit3", 50), 
+                   rep("fit4", 50), rep("fit5", 50))) 
+
+head(all_fits)
+```
+
+## Error Summary in Test Sample
+
+```{r}
+#| echo: true
+
+all_fits <- all_fits |> 
+  mutate(.error = ifelse(bechdel == 1, 1 - .fitted, .fitted))
+
+all_fits |> group_by(model) |>
+  summarise(n = n(), mean_err = mean(.error), rmse = sqrt(mean(.error^2)),
+            max_err = max(.error))
+```
+
+## Test Sample: Fitted Probabilities
+
+```{r}
+#| echo: true
+
+all_fits |> group_by(bechdel, model) |>
+  summarise(n = n(), mean = mean(.fitted), 
+            min = min(.fitted), max = max(.fitted))
+```
+
+## Brier Scores in Test Sample
+
+```{r}
+#| echo: true
+
+bri_1 <- fit1_test |> mutate(bechdel_f = as_factor(bechdel)) |>
+  brier_class(bechdel_f, .fitted) |> mutate(model = "fit1")
+bri_2 <- fit2_test |> mutate(model = "fit2", bechdel_f = as_factor(bechdel)) |>
+  brier_class(bechdel_f, .fitted) |> mutate(model = "fit2")
+bri_3 <- fit3_test |> mutate(model = "fit3", bechdel_f = as_factor(bechdel)) |>
+  brier_class(bechdel_f, .fitted) |> mutate(model = "fit3")
+bri_4 <- fit4_test |> mutate(model = "fit4", bechdel_f = as_factor(bechdel)) |>
+  brier_class(bechdel_f, .fitted) |> mutate(model = "fit4")
+bri_5 <- fit5_test |> mutate(model = "fit5", bechdel_f = as_factor(bechdel)) |>
+  brier_class(bechdel_f, .fitted) |> mutate(model = "fit5")
+
+bind_rows(bri_1, bri_2, bri_3, bri_4, bri_5)
+```
+
+## Brier Scores in Test Sample
+
+```{r}
+#| echo: true
+
+bri_1 <- fit1_test |> mutate(bechdel_f = as_factor(bechdel)) |>
+  brier_class(bechdel_f, .fitted) |> mutate(model = "fit1")
+bri_2 <- fit2_test |> mutate(model = "fit2", bechdel_f = as_factor(bechdel)) |>
+  brier_class(bechdel_f, .fitted) |> mutate(model = "fit2")
+bri_3 <- fit3_test |> mutate(model = "fit3", bechdel_f = as_factor(bechdel)) |>
+  brier_class(bechdel_f, .fitted) |> mutate(model = "fit3")
+bri_4 <- fit4_test |> mutate(model = "fit4", bechdel_f = as_factor(bechdel)) |>
+  brier_class(bechdel_f, .fitted) |> mutate(model = "fit4")
+bri_5 <- fit5_test |> mutate(model = "fit5", bechdel_f = as_factor(bechdel)) |>
+  brier_class(bechdel_f, .fitted) |> mutate(model = "fit5")
+
+bind_rows(bri_1, bri_2, bri_3, bri_4, bri_5)
+```
+
+## Test Sample C statistics: area under ROC
+
+```{r}
+#| echo: true
+
+roc_test <- tibble(
+  model = c("fit1", "fit2", "fit3", "fit4", "fit5"),
+  auc_test = c(as.numeric(performance_roc(fit1, new_data = mov_extra)),
+               as.numeric(performance_roc(fit2, new_data = mov_extra)),
+               as.numeric(performance_roc(fit3, new_data = mov_extra)),
+               as.numeric(performance_roc(fit4, new_data = mov_extra)),
+               as.numeric(performance_roc(fit5, new_data = mov_extra))))
+
+roc_test
+```
 
 ## What's not in this example?
 
 - Missing data and single/multiple imputation with `mice` or `aregImpute()`
-- Partitioning the data into training and test samples 
-- Evaluation of a logistic regression model in a test sample
+- Partitioning the data into training and test samples at the start
 - Fitting a Bayesian logistic regression model
 
 The `support1000` example covers each of these pieces, in addition to the majority of the material in this `mov25` example.
