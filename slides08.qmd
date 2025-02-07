@@ -640,7 +640,7 @@ Remember that this result shows sequential tests, and if you change the order of
 set.seed(202502061); validate(fit1_lrm, B = 300)
 ```
 
-- C = 0.5 + Dxy, so validated C for `fit1` = 0.5 + (0.4366/2) = 0.7183, validated Nagelkerke $R^2$ = 0.2469, and validated Brier score B = 0.2042
+- C = 0.5 + Dxy/2, so validated C for `fit1` = 0.5 + (0.4366/2) = 0.7183, validated Nagelkerke $R^2$ = 0.2469, and validated Brier score B = 0.2042
 
 ## Cross-Validating `fit1` AUC
 
@@ -1045,7 +1045,7 @@ Remember that this result shows sequential tests, and if you change the order of
 set.seed(202502062); validate(fit2_lrm, B = 300)
 ```
 
-- C = 0.5 + Dxy, so validated C for `fit2` = 0.5 + (0.5161/2) = 0.7581, validated Nagelkerke $R^2$ = 0.2674, and validated Brier score B = 0.1989
+- C = 0.5 + Dxy/2, so validated C for `fit2` = 0.5 + (0.5161/2) = 0.7581, validated Nagelkerke $R^2$ = 0.2674, and validated Brier score B = 0.1989
 
 ## Cross-Validating AUC for `fit2`
 
@@ -1392,7 +1392,7 @@ Remember that this result shows sequential tests, and if you change the order of
 set.seed(202502063); validate(fit3_lrm, B = 300)
 ```
 
-- C = 0.5 + Dxy, so validated C for `fit3` = 0.5 + (0.5339/2) = 0.7670, validated Nagelkerke $R^2$ = 0.2905, and validated Brier score B = 0.1927
+- C = 0.5 + Dxy/2, so validated C for `fit3` = 0.5 + (0.5339/2) = 0.7670, validated Nagelkerke $R^2$ = 0.2905, and validated Brier score B = 0.1927
 
 ## Cross-Validating AUC for `fit3`
 
@@ -1741,7 +1741,7 @@ Remember that this result shows sequential tests, and if you change the order of
 set.seed(202502064); validate(fit4_lrm, B = 300)
 ```
 
-- C = 0.5 + Dxy, so validated C for `fit4` = 0.5 + (0.4822/2) = 0.7411, validated Nagelkerke $R^2$ = 0.2709, and validated Brier score B = 0.1974
+- C = 0.5 + Dxy/2, so validated C for `fit4` = 0.5 + (0.4822/2) = 0.7411, validated Nagelkerke $R^2$ = 0.2709, and validated Brier score B = 0.1974
 
 ## Cross-Validating AUC for `fit4`
 
@@ -2095,7 +2095,7 @@ anova(fit5_lrm)
 set.seed(202502065); validate(fit5_lrm, B = 300)
 ```
 
-- C = 0.5 + Dxy, so validated C for `fit5` = 0.5 + (0.5197/2) = 0.7599, validated Nagelkerke $R^2$ = 0.2906, and validated Brier score B = 0.1993
+- C = 0.5 + Dxy/2, so validated C for `fit5` = 0.5 + (0.5197/2) = 0.7599, validated Nagelkerke $R^2$ = 0.2906, and validated Brier score B = 0.1993
 
 ## Cross-Validating AUC for `fit5`
 
