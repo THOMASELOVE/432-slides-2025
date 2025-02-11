@@ -1,0 +1,2600 @@
+---
+title: "432 Class 10"
+author: Thomas E. Love, Ph.D.
+date: "2025-02-13"
+format:
+  revealjs: 
+    theme: simple
+    embed-resources: true
+    self-contained: true
+    slide-number: true
+    footnotes-hover: true
+    preview-links: auto
+    date-format: iso
+    logo: 432-2025-pic.png
+    footer: "432 Class 10 | 2025-02-13 | <https://thomaselove.github.io/432-2025/>"
+---
+
+## Our Agenda
+
+- World Happiness Report data ingest and cleanup
+- Linear Regression with `lm()` and with `ols()`
+  - Fitting Five Models with both `lm()` and `ols()`
+  - Single and Multiple Imputation strategies
+  - Spearman's $\rho^2$; incorporating non-linear terms
+  - Using "best subsets" searches to prune models
+  - Evaluating / Displaying Model Fit in a Training Sample
+  - Evaluating Model Predictions in a Test Sample
+
+## Our R Setup
+
+```{r}
+#| echo: true
+#| message: false
+knitr::opts_chunk$set(comment = NA)
+
+library(janitor); library(naniar)
+library(broom); library(gt); library(patchwork)
+library(car)        ## variance inflation factor, boxCox plot
+library(caret)      ## for confusion matrices
+library(cobalt)     ## new today: to split factor into indicator variables
+library(cutpointr)  ## new today: optimizing cutpoints
+library(mice)       ## supporting multiple and simple imputation
+library(mosaic)     ## for df_stats() and favstats(), mostly
+library(olsrr)      ## best subsets search for linear regression
+library(readxl)     ## read in data from an Excel file
+library(rms)        ## also loads Hmisc      
+library(easystats); library(tidyverse)
+
+theme_set(theme_bw()) 
+```
+
+## Ingest the `happy` Data
+
+```{r}
+#| echo: true
+
+happy <- read_xlsx("c10/data/happy.xlsx", na = c("NA", "")) |>
+  janitor::clean_names() |>
+  mutate(across(where(is.character), as_factor), 
+         iso3 = as.character(iso3),
+         country = as.character(country))
+
+dim(happy)
+happy |> head()
+```
+
+## The `happy` data (1/3) {.smaller}
+
+The data describe 14 characteristics of 138 countries included in the World Happiness Report 2024, much of which come from the Gallup World Poll (GWP). 
+
+Variable | Description
+-------- | ------------------------------------------------
+`iso3` | ISO-alpha3 code from [the United  Nations](https://unstats.un.org/unsd/methodology/m49/)
+`country` | Name as listed in World Happiness Report 2024
+`ladder` | National average response to "Please imagine a ladder, with steps numbered from 0 at the bottom to 10 at the top. The top of the ladder represents the best possible life for you and the bottom of the ladder represents the worst possible life for you. On which step of the ladder would you say you personally feel you stand at this time?"
+`log_gdp` | Natural log(GDP per capita) in purchasing power parity (PPP) at constant 2017 international dollar prices, from World Development Indicators
+
+## The `happy` data (2/3) {.smaller}
+
+Variable | Description
+-------- | ------------------------------------------------
+`social` | Social support = national average of 1/0 response to "If you were in trouble, do you have relatives or friends you can count on to help you whenever you need them, or not?"
+`life_exp` | Nation's healthy life expectancy at birth, extracted from the World Health Organization’s (WHO) Global Health Observatory data repository
+`freedom` | National average of 1/0 responses to “Are you satisfied or dissatisfied with your freedom to choose what you do with your life?”
+`generosity` | Residual of regressing national average 1/0 response to "Have you donated money to a charity in the past month?" on GDP per capita.
+`corruption` | National average of 1/0 responses to two questions: "Is corruption widespread throughout the government or not" and "Is corruption widespread within businesses or not?"
+
+## The `happy` data (3/3) {.smaller}
+
+Variable | Description
+-------- | ------------------------------------------------
+`pos_affect` | National average of 1/0 responses to three positive affect measures: "Did you smile or laugh a lot yesterday?", and "Did you experience enjoyment during a lot of the day yesterday?", "Did you learn or do something interesting yesterday?"
+`neg_affect` | National average of 1/0 responses to three negative affect measures: "Did you experience worry during a lot of the day yesterday?", "Did you experience sadness ...", "Did you experience anger..."
+`region` | United Nations Geoscheme (Continent), via [Wikipedia](https://en.wikipedia.org/wiki/List_of_countries_and_territories_by_the_United_Nations_geoscheme)
+`temp_c` | Mean yearly temperature (Celsius, 1991-2020) from [Wikipedia](https://en.wikipedia.org/wiki/List_of_countries_by_average_yearly_temperature)
+`pop_dens` | Population per square mile from [Wikipedia](https://en.wikipedia.org/wiki/List_of_countries_and_dependencies_by_population_density)
+
+- More details at [Statistical Appendix for Happiness Report](https://happiness-report.s3.amazonaws.com/2024/Ch2+Appendix.pdf)
+
+# Data Management
+
+## One `region` has only 2 countries...
+
+We have five continents listed under `region`, but only 2 countries (Australia and New Zealand) located in Oceania. Let's collapse that factor into the smallest other category.
+
+```{r}
+#| echo: true
+
+happy <- happy |> 
+  mutate(region4 = fct_lump_n(region, 3, other_level = "Other"))
+
+happy |> tabyl(region4, region) |> gt() |> tab_options(table.font.size = 24)
+```
+
+## Create two more categorical variables
+
+We're going to use two categories to represent `temp_c` and three to represent the information in `pop_dens`^[We're doing this for teaching purposes, not because it's generally a good idea.]. 
+
+```{r}
+#| echo: true
+
+happy <- happy |> 
+  mutate(ftemp_c = categorize(temp_c, split = "median", 
+                              labels = c("cool", "warm"))) |>
+  mutate(fpop_dens = categorize(pop_dens, split = "quantile", n_groups = 3, 
+                                labels = c("low", "med", "high")))
+
+happy |> tabyl(ftemp_c, fpop_dens) |> 
+  adorn_totals(where = c("row", "col")) |> adorn_title()
+```
+
+## Sanity Checks
+
+```{r}
+#| echo: true
+
+df_stats(temp_c ~ ftemp_c, data = happy) |> gt() |> 
+  tab_options(table.font.size = 20) |> 
+  fmt_number(columns = mean:sd, decimals = 2) |>
+  opt_stylize(style = 3, color = "blue")
+
+df_stats(pop_dens ~ fpop_dens, data = happy) |> gt() |> 
+  tab_options(table.font.size = 20) |> 
+  fmt_number(columns = mean:sd, decimals = 2) |>
+  opt_stylize(style = 3, color = "blue")
+```
+
+## Data Codebook
+
+```{r}
+#| echo: true
+
+data_codebook(happy |> select(-iso3, -country))
+```
+
+## Modeling Objective for Today
+
+Predict `ladder` using some combination of these 11 predictors:
+
+- `log_gdp`, `social`, `life_exp`, `freedom`, `generosity`, 
+- `corruption`, `pos_affect`, `neg_affect`, `ftemp_c`, 
+- `fpop_dens`, `region4`
+
+We have complete data on `ladder` for all `r nrow(happy)` countries.
+
+```{r}
+#| echo: true
+n_miss(happy$ladder)
+```
+
+
+## Check Variable Types
+
+- Is each variable we'll use either quantitative (`<dbl>` or `<int>`) or a factor (`<fct>`)?
+
+```{r}
+#| echo: true
+glimpse(happy)
+```
+
+## Missing Data?
+
+```{r}
+#| echo: true
+
+n_miss(happy)
+miss_var_summary(happy) |> filter(n_miss > 0)
+miss_case_table(happy)
+```
+
+
+## What's the mode of our outcome?
+
+```{r}
+#| echo: true
+
+happy |> tabyl(ladder) |> 
+  adorn_pct_formatting() |> arrange(desc(n)) |> head(5)
+```
+
+It appears we have nothing but unique values in our outcome.
+
+```{r}
+#| echo: true
+
+identical(nrow(happy), n_distinct(happy$ladder))
+```
+
+## Summarizing our outcome
+
+```{r}
+#| echo: true
+mosaic::favstats(happy$ladder)
+Hmisc::describe(happy$ladder)
+```
+
+- The `ladder` data are available for all 138 countries, with 138 distinct values.
+- The mean `ladder` score is 5.62, with standard deviation 1.14 points.
+
+## Which countries have the outlying `ladder` values?
+
+- From our summary on the last slide, the range of `ladder` values goes from 1.45 to 7.70 points.
+
+```{r}
+#| echo: true
+slice(happy, which.max(ladder)) |> select(iso3, country, ladder)
+slice(happy, which.min(ladder)) |> select(iso3, country, ladder)
+```
+
+
+## Single Imputation via `mice`
+
+We'll build a single imputation model, assuming MAR for the missing data, to help us fit our models.
+
+```{r}
+#| echo: true
+
+happy_si <- mice(happy, m = 1, seed = 43201, print = FALSE) |>
+  complete() |>
+  tibble()
+
+dim(happy_si)
+prop_miss_case(happy_si)
+```
+
+- Later, we'll demonstrate both a `mice`-based method for multiple imputation, and another method using `rms` tools.
+
+## Should we partition?
+
+With just `r nrow(happy)` countries available, we probably shouldn't, but we will anyway here, so we can demonstrate some ideas.
+
+1. Check that we have a unique `iso3` code for each country?
+
+```{r}
+#| echo: true
+
+identical(n_distinct(happy_si$iso3), nrow(happy_si))
+```
+
+## Partitioning `happy_si`
+
+2. Partition `happy_si` into samples of 80% training, 20% testing, using the `data_partition()` tool from the **easystats** framework.
+
+```{r}
+#| echo: true
+
+part_si <- data_partition(happy_si, proportion = 0.8, seed = 43202)
+happy_si_train <- part_si$p_0.8
+happy_si_test <- part_si$test
+
+dim(happy_si_train)
+dim(happy_si_test)
+```
+
+## Consider outcome transformation?
+
+```{r}
+#| echo: true
+fit0 <- lm(ladder ~ log_gdp + social + life_exp + freedom + generosity + 
+             corruption + pos_affect + neg_affect + ftemp_c + 
+             fpop_dens + region4, data = happy_si_train)
+
+plot(boxCox(fit0, lambda = seq(-2, 3, 1/10)))
+```
+
+## Normality comparison?
+
+- Do Normal Q-Q plots suggest a big improvement in Normality moving from `ladder` to `ladder` squared?
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+p1 <- ggplot(data = happy_si_train, aes(sample = ladder)) +
+  geom_qq() + geom_qq_line(col = "red") +
+  labs(title = "Untransformed `ladder`", subtitle = "Normal Q-Q plot",
+       y = "ladder", x = "N(0,1) expectation")
+
+p2 <- ggplot(data = happy_si_train, aes(sample = ladder^2)) +
+  geom_qq() + geom_qq_line(col = "red") +
+  labs(title = "Square of `ladder`", subtitle = "Normal Q-Q plot",
+       y = "ladder^2", x = "N(0,1) expectation")
+
+p1 + p2
+```
+
+## Evaluating Transformation's Impact
+
+- Consider residuals vs. fitted plots for models fit using ladder and ladder squared.
+
+```{r}
+#| echo: true
+fit0 <- lm(ladder ~ log_gdp + social + life_exp + freedom + generosity + 
+             corruption + pos_affect + neg_affect + ftemp_c + 
+             fpop_dens + region4, data = happy_si_train)
+
+fit0_aug <- augment(fit0)
+
+happy_si_train <- happy_si_train |> mutate(ladder2 = ladder^2)
+
+fitx2 <- lm(ladder2 ~ log_gdp + social + life_exp + freedom + generosity + 
+             corruption + pos_affect + neg_affect + ftemp_c + 
+             fpop_dens + region4, data = happy_si_train)
+
+fitx2_aug <- augment(fitx2)
+```
+
+## Residuals vs. Fitted Values?
+
+- Do residuals vs. fitted values plots suggest a big improvement in moving from `ladder` to `ladder` squared?
+
+```{r}
+#| echo: true
+
+p1 <- ggplot(data = fit0_aug, aes(x = .fitted, y = .std.resid)) +
+  geom_point() +
+  geom_smooth(method = "loess", formula = y ~ x, se = TRUE) +
+  geom_hline(yintercept = 0, col = "red", lty = "dashed") +
+  labs(title = "Model with ladder as outcome",
+       subtitle = "Standardized Residuals vs. Fitted values; loess smooth")
+
+p2 <- ggplot(data = fitx2_aug, aes(x = .fitted, y = .std.resid)) +
+  geom_point() +
+  geom_smooth(method = "loess", formula = y ~ x, se = TRUE) +
+  geom_hline(yintercept = 0, col = "red", lty = "dashed") +
+  labs(title = "Model with ladder squared as outcome",
+       subtitle = "Standardized Residuals vs. Fitted values; loess smooth")
+```
+
+## Residuals vs. Fitted Plots
+
+```{r}
+#| echo: true
+p1 + p2
+```
+
+# Fitting Five Models
+
+## The Five Models We'll Fit
+
+We'll predict `ladder`, without a transformation, using five sets of predictors, selected from the 11 available predictors.
+
+We'll build them in an order that's relatively easy for us to think about, but label them (`fit1`, `fit2`, ...) in a way that helps us later.
+
+We'll start with a model we'll call `fit4` that includes all 11 predictors, solely as main effects.
+
+## Fitting all 11 predictors: the `fit4` model
+
+```{r}
+#| echo: true
+
+fit4_lm <- lm(ladder ~ log_gdp + social + life_exp + freedom +
+                generosity + corruption + pos_affect + neg_affect +
+                ftemp_c + fpop_dens + region4, 
+              data = happy_si_train)
+
+d <- datadist(happy_si_train)
+options(datadist = "d")
+
+fit4_ols <- ols(ladder ~ log_gdp + social + life_exp + freedom +
+                  generosity + corruption + pos_affect + neg_affect +
+                  ftemp_c + fpop_dens + region4, 
+                data = happy_si_train, x = TRUE, y = TRUE)
+```
+
+Do these functions produce the same coefficient values?
+
+```{r}
+#| echo: true
+identical(as.numeric(fit4_lm$coefficients), 
+          as.numeric(fit4_ols$coefficients))
+```
+
+## Harrell on "Spending df" {.smaller}
+
+Given a fixed amount of information in the data available for the analysis there is an "information budget" that should be used judiciously: more important predictors should represented in a richer way (e.g. make the number of knots in splines proportional to the overall importance and complexity in the variable) than predictors that are less important. 
+
+"Spending df’s with no regrets": to preserve the operating characteristics of formal inference, once assessed in the modeling process even the less important candidate predictors should remain in view and not elided. All candidate predictors get a portion of the "df budget", but to a varying extent based on their predictive potential.
+
+<https://hbiostat.org/rmsc/>
+
+## Spearman $\rho^2$ plot
+
+```{r}
+#| echo: true
+
+plot(spearman2(ladder ~ log_gdp + social + life_exp + freedom +
+                 generosity + corruption + pos_affect + neg_affect +
+                 ftemp_c + fpop_dens + region4, data = happy_si_train))
+```
+
+## What do we see in the Spearman $\rho^2$ plot?
+
+Variables sorted from highest to lowest adjusted $\rho^2$:
+
+- `log_gdp` (quantitative, so 1 df)
+- `social` (quantitative, so 1 df)
+- `life_exp` (quantitative, so 1 df)
+- `region4` (three category, so 3 df)
+- and the rest fall into lower tiers
+
+## Non-Linear Terms We'll Consider
+
+Suppose we decide (a bit arbitrarily) to include the following non-linear terms in `fit5`:
+
+- a four-knot restricted cubic spline in `log_gdp`
+- a polynomial of degree 2 in `social`
+- an interaction (product term) between `life_exp` and `region4`
+
+really just to demonstrate methods for fitting and evaluating such things. We'll call this model `fit5` in what follows.
+
+## Add non-linear terms: the `fit5` model
+
+```{r}
+#| echo: true
+
+fit5_lm <- lm(ladder ~ rcs(log_gdp,4) + poly(social,2) + 
+                life_exp * region4 + freedom + generosity + 
+                corruption + pos_affect + neg_affect +
+                ftemp_c + fpop_dens,
+              data = happy_si_train)
+
+# already set up the datadist for happy_si_train
+# note the need to use poly in lm() and pol in ols()
+
+fit5_ols <- ols(ladder ~ rcs(log_gdp,4) + pol(social,2) + 
+                  life_exp * region4 + freedom + generosity + 
+                  corruption + pos_affect + neg_affect +
+                  ftemp_c + fpop_dens, 
+                data = happy_si_train, x = TRUE, y = TRUE)
+```
+
+With the polynomial included, `lm()` and `ols()` look a little different, but there's no meaningful difference in the models or the predictions they create.
+
+## Two predictors + interaction: model `fit2`
+
+Next, we'll fit a model using `log_gdp` and `ftemp_c` and their interaction, which we'll call `fit2`...
+
+```{r}
+#| echo: true
+
+fit2_lm <- lm(ladder ~ log_gdp * ftemp_c,
+              data = happy_si_train)
+
+# `*` indicates interaction of log_gdp (quant.) and ftemp_c (binary)
+# would be `+` if we just wanted the main effects (no interaction)
+
+
+fit2_ols <- ols(ladder ~ log_gdp * ftemp_c, 
+                data = happy_si_train, x = TRUE, y = TRUE)
+```
+
+`ols()` and `lm()` still produce same model?
+
+```{r}
+#| echo: true
+identical(as.numeric(fit2_lm$coefficients), 
+          as.numeric(fit2_ols$coefficients))
+```
+
+
+
+## "Best Subsets" to search for good subsets
+
+We'll use Mallows' $C_p$ statistic and a "best subsets" search to identify good subsets of 1-6 predictors from our main effects model `fit4_lm`. We'll use `ols_step_best_subset()` from the **olsrr** package.
+
+```{r}
+#| echo: true
+
+fit4_bestsubs <- ols_step_best_subset(fit4_lm, metric = "cp", max_order = 6)
+```
+
+- We want smaller values of $C_p$, and we also want to catch big drops in $C_p$
+- Other available `metric` choices include: `rsquare`, `adjr`, `aic`, and `sbic`
+
+## "Best Subsets" Results (see next slide)
+
+```{r}
+#| echo: true
+
+fit4_bestsubs
+```
+
+## A briefer summary^[This table was hand-crafted by Dr. Love.]
+
+Index | Variables | $C_p$ | AIC | $R^2$ | Adj. $R^2$
+:-----: | :----------: | ----: | ----: | ----: | ----: |
+(1) | social | 107.8 | 229 | .6057 | .6021
+(2) | (1) + freedom | 56.8 | 200 | .7035 | .6980
+(3) | (2) + life_exp | 21.8 | 173 | .7716 | .7652
+(4) | (3) + corruption | 14.8 | 167 | .7883 | .7802
+(5) | (4) + region4 | 9.1 | 161 | .8098 | .7967
+(6) | (5) + log_gdp | 7.6 | 159 | .8162 | .8017
+
+- Which of these seem most promising?
+
+## `fit1`: 3 predictors, main effects
+
+- Our `fit1` will use the "best subsets" suggestion using 3 predictors: `social`, `life_exp` and `freedom`
+    - Why?
+    - big drop in $C_p$ (and AIC) from two predictors to three, 
+    - $R^2$ = 0.7652, adjusted $R^2$ is 0.7498 so not much separation there
+
+## `fit1` model fitting
+
+```{r}
+#| echo: true
+
+fit1_lm <- lm(ladder ~ social + life_exp + freedom, 
+              data = happy_si_train)
+
+# already set up the datadist for happy_si_train
+
+fit1_ols <- ols(ladder ~ social + life_exp + freedom, 
+    data = happy_si_train, x = TRUE, y = TRUE)
+```
+
+Do the models yield the same coefficients?
+
+```{r}
+#| echo: true
+
+fit1_lm$coefficients
+fit1_ols$coefficients
+```
+
+## `fit3`: 5 predictors + non-linearity
+
+- Our `fit3` will start with the "best subsets" suggestion using 5 predictors: `social`, `life_exp`, `freedom`, `corruption` and `region4`
+    - pretty low $C_p$ (and AIC) among these options, $R^2$ = 0.8098, adjusted $R^2$ is 0.7776
+    - For demonstration purposes, we'll also add an interaction between the main effect of `life_exp` and `region4` and a restricted cubic spline in 3 knots for `social` and also for `life_exp`, and call that model `fit3`
+
+## `fit3` model fitting
+
+```{r}
+#| echo: true
+
+fit3_lm <- lm(ladder ~ rcs(social,3) + rcs(life_exp, 3) + region4 + 
+                life_exp %ia% region4 + freedom + corruption, 
+              data = happy_si_train)
+
+# %ia% for interaction using only main effect of life_exp
+# already set up the datadist for happy_si_train
+
+fit3_ols <- ols(ladder ~ rcs(social,3) + rcs(life_exp, 3) + region4 + 
+                life_exp %ia% region4 + freedom + corruption,
+    data = happy_si_train, x = TRUE, y = TRUE)
+```
+
+And, again, the `lm()` and `ols()` fits are the same...
+
+```{r}
+#| echo: true
+
+identical(as.numeric(fit3_ols$coefficients), 
+          as.numeric(fit3_lm$coefficients))
+```
+
+## Our five models {.smaller}
+
+Model | `ladder` is predicted using... | Vars | NLT | df
+:----: | :------------------------------------------------------- | ---: | ---: | ---:
+fit1 | social + life_exp + freedom | 3 | 0 | 3
+fit2 | log_gdp * ftemp_c | 2 | 1 | 3
+fit3 | rcs(social,3) + rcs(life_exp, 3) + region4 + life_exp %ia% region4 + freedom + corruption | 5 | 3 | 12
+fit4 | log_gdp + social + life_exp + freedom + generosity + corruption + pos_affect + neg_affect + ftemp_c + fpop_dens + region4 | 11 | 0 | 14
+fit5 | rcs(log_gdp,4) + poly(social,2) + life_exp * region4 + freedom + generosity + corruption + pos_affect + neg_affect + ftemp_c + fpop_dens | 11 | 3 | 20
+
+- Vars = number of variables (out of the 11 candidate predictors)
+- NLT = number of non-linear terms (splines + polynomials + interactions)
+- df = model degrees of freedom
+
+# Estimation of coefficients, interpreting effect sizes
+
+## `fit1` Coefficients
+
+```{r}
+#| echo: true
+
+model_parameters(fit1_ols, ci = 0.90, pretty_names = FALSE, digits = 3)
+```
+
+Effect of `freedom` in `fit1`?
+
+- If we have two countries with the same values of `social` and `life_exp`, but country A's `freedom` score is one point higher than country B, our model `fit1` predicts that, on average, the `ladder` score for country A will be 2.762 (90% CI: 1.982, 3.541) points higher than country B.
+
+## Interpreting `fit1` coefficients
+
+- If we have two countries with the same values of `life_exp` and `freedom`, but country A's `social` score is one point higher than country B, our model `fit1` predicts that, on average, the `ladder` score for country A will be 3.615 (90% CI: 2.699, 4.530) points higher than country B.
+
+- If we have two countries with the same values of `social` and `freedom`, but country A's `life_exp` score is one point higher than country B, our model `fit1` predicts that, on average, the `ladder` score for country A will be 0.072 (90% CI: 0.051, 0.093) points higher than country B.
+
+## `fit1` meaning of the intercept
+
+- If we have a country with 0 values in `social`, `life_exp` and `freedom`, our predicted `ladder` score, according to `fit1`, will be -4.140 (90% CI: -5.214, -3.065).
+- Are there problems here?
+
+```{r}
+#| echo: true
+
+df_stats(~ ladder + social + life_exp + freedom, data = happy_si_train) |>
+  gt() |> fmt_number(columns = min:sd, decimals = 2) |> 
+  opt_stylize(style = 1, color = "gray")
+```
+
+## `fit1` Coefficients (`lm()` vs. `ols()`)
+
+```{r}
+#| echo: true
+
+model_parameters(fit1_lm, ci = 0.90, pretty_names = FALSE) |> 
+  gt() |> fmt_number(columns = -c(CI, df_error), decimals = 3) |>
+  opt_stylize(style = 6, color = "blue")
+```
+
+```{r}
+#| echo: true
+
+model_parameters(fit1_ols, ci = 0.90, pretty_names = FALSE) |> 
+  gt() |> fmt_number(columns = -c(CI, df_error), decimals = 3) |>
+  opt_stylize(style = 6, color = "pink")
+```
+
+## Can we use `tidy()` instead?
+
+```{r}
+#| echo: true
+
+tidy(fit1_lm, conf.int = TRUE, conf.level = 0.90) |>
+  gt() |> fmt_number(decimals = 3) |>
+  opt_stylize(style = 4, color = "cyan")
+```
+
+but the `ols()` fit doesn't work with `tidy()`.
+
+## `fit1` prediction plots
+
+```{r}
+#| echo: true
+ggplot(Predict(fit1_ols, conf.int = 0.90))
+```
+
+## `fit1` Effect Plot
+
+```{r}
+#| echo: true
+plot(summary(fit1_ols))
+```
+
+## `fit1` Effects Summary
+
+```{r}
+#| echo: true
+summary(fit1_ols, conf.int = 0.90)
+```
+
+```{r}
+#| echo: true
+
+df_stats(~ social + life_exp + freedom, data = happy_si_train)
+```
+
+
+## `fit2` Coefficients
+
+```{r}
+#| echo: true
+
+model_parameters(fit2_ols, ci = 0.90, pretty_names = FALSE) |> 
+  gt() |> fmt_number(c(-CI, -df_error), decimals = 3) |> 
+  tab_options(table.font.size = 24) |>
+  opt_stylize(style = 6, color = "green")
+```
+
+- Why `pretty_names = FALSE`? 
+    - I like it better when the names in `model_parameters()` precisely match what's in my codebook.
+
+## Can we interpret the `fit2` interaction?
+
+$$
+\hat{\mbox{ladder}} = -1.919 + 0.788 \mbox{ log_gdp} - \\
+0.958 \mbox{ ftemp_c = warm} - 0.104 \mbox{ log_gdp } \times \mbox{ ftemp_c = warm}
+$$
+
+Suppose countries A and B each have "cool" temperatures, but B's `log_gdp` is one unit larger than A's. Our predicted `ladder` from `fit2`:
+
+- for Country A: -1.919 + 0.788 (log_gdp for A)
+- for Country B: -1.919 + 0.788 (log_gdp for A + 1)
+- for Country B - Country A difference = 0.788
+
+## Interpret the `fit2` interaction term
+
+$$
+\hat{\mbox{ladder}} = -1.919 + 0.788 \mbox{ log_gdp} - \\
+0.958 \mbox{ ftemp_c = warm} - 0.104 \mbox{ log_gdp } \times \mbox{ ftemp_c = warm}
+$$
+
+Suppose countries C and D each have "warm" temperatures, but D's `log_gdp` is one unit larger than C's. From `fit2`:
+
+- C: (-1.919 - 0.958) + (0.788 - 0.104) (log_gdp for C)
+- D: (-1.919 - 0.958) + (0.788 - 0.104) (log_gdp for C + 1)
+- D - C difference = 0.788 - 0.104 = 0.644
+
+## Interpreting the `fit2` interaction {.smaller}
+
+$$
+\hat{\mbox{ladder}} = -1.919 + 0.788 \mbox{ log_gdp} - \\
+0.958 \mbox{ ftemp_c = warm} - 0.104 \mbox{ log_gdp } \times \mbox{ ftemp_c = warm}
+$$
+
+-- | log_gdp | ftemp_c | Predicted ladder from `fit1`
+------: | ------: | ------: | ------------------------------------------------
+A | 9 | cool | -1.919 + 0.788 (9) - 0.958 (0) - 0.104 (9)(0) = 5.173
+B | 10 | cool | -1.919 + 0.788 (10) - 0.958 (0) - 0.104 (10)(0) = 5.961 
+C | 9 | warm | -1.919 + 0.788 (9) - 0.958 (1) - 0.104 (9)(1) = 3.279
+D | 10 | warm | -1.919 + 0.788 (10) - 0.958 (1) - 0.104 (10)(1) = 3.963
+
+- B - A = 5.961 - 5.173 = 0.788 compares 10 vs. 9 when temp = cool
+- D - C = 3.963 - 3.279 = 0.684 compares 10 vs. 9 when temp = warm
+- A - C = 5.173 - 3.279 = 1.894 compares cool vs. warm when log_gdp = 9
+- B - D = 5.961 - 3.963 = 1.998 compares cool vs. warm when log_gdp = 10
+
+## Picturing the `fit2` Model
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+new_dat <- tibble(log_gdp = c(9, 10, 9, 10), 
+                  ftemp_c = c("cool", "cool", "warm", "warm"))
+
+fit2_aug <- augment(fit2_lm, newdata = new_dat)
+
+ggplot(data = fit2_aug, aes(x = log_gdp, y = .fitted, 
+                            col = ftemp_c, group = ftemp_c)) +
+  geom_point() +
+  geom_smooth(method = "lm", formula = y ~ x, se = FALSE) +
+  scale_color_manual(values = c("blue", "red")) +
+  theme(legend.position = "bottom") +
+  labs(title = "fit2 interaction effect",
+       y = "Predicted ladder via fit2")
+```
+
+## `fit2` Conclusions?
+
+```{r}
+#| echo: false
+
+model_parameters(fit2_ols, ci = 0.90, pretty_names = FALSE) |> 
+  gt() |> tab_options(table.font.size = 24) |>
+  fmt_number(columns = -c(CI, df_error), decimals = 3) |>
+  opt_stylize(style = 6, color = "pink")
+```
+
+- What is the `log_gdp` effect? 
+    - Thanks to the inclusion of our interaction term (product term), **it depends** on `ftemp_c`.
+- What is the `ftemp_c` effect? **It depends** on `log_gdp`.
+- Does the intercept's value indicate something to us?
+
+## `happy_si_train`'s quantities
+
+```{r}
+#| echo: true
+df_stats(~ ladder + log_gdp + social + life_exp + freedom + generosity + 
+           corruption + pos_affect + neg_affect, data = happy_si_train) |>
+  gt() |> fmt_number(columns = min:sd, decimals = 2) |>
+  tab_options(table.font.size = 20) |> opt_stylize(style = 2, color = "gray")
+```
+
+## `fit2` prediction plots
+
+```{r}
+#| echo: true
+ggplot(Predict(fit2_ols, conf.int = 0.90), layout = c(1,2))
+```
+
+## `fit2` Effect Plot
+
+```{r}
+#| echo: true
+plot(summary(fit2_ols))
+```
+
+## `fit2` Effects Summary
+
+```{r}
+#| echo: true
+summary(fit2_ols, conf.int = 0.90)
+```
+
+## `fit3` Coefficients
+
+```{r}
+#| echo: true
+
+model_parameters(fit3_ols, ci = 0.90, pretty_names = FALSE, digits = 3)
+```
+
+## `fit3` prediction plots
+
+```{r}
+#| echo: true
+ggplot(Predict(fit3_ols, conf.int = 0.90))
+```
+
+## `fit3` Effect Plot
+
+```{r}
+#| echo: true
+plot(summary(fit3_ols))
+```
+
+## `fit3` Effects Summary
+
+```{r}
+#| echo: true
+summary(fit3_ols, conf.int = 0.90)
+```
+
+## `fit4` Coefficients
+
+```{r}
+#| echo: true
+
+model_parameters(fit4_ols, ci = 0.90, pretty_names = FALSE, digits = 3)
+```
+
+## `fit4` prediction plots
+
+```{r}
+#| echo: true
+ggplot(Predict(fit4_ols, conf.int = 0.90))
+```
+
+## `fit4` Effect Plot
+
+```{r}
+#| echo: true
+plot(summary(fit4_ols))
+```
+
+## `fit4` Effects Summary
+
+```{r}
+#| echo: true
+summary(fit4_ols, conf.int = 0.90)
+```
+
+## `fit5` Coefficients
+
+```{r}
+#| echo: true
+
+model_parameters(fit5_ols, ci = 0.90, pretty_names = FALSE, digits = 3)
+```
+
+## `fit5` prediction plots
+
+```{r}
+#| echo: true
+ggplot(Predict(fit5_ols, conf.int = 0.90))
+```
+
+## `fit5` Effect Plot
+
+```{r}
+#| echo: true
+plot(summary(fit5_ols))
+```
+
+## `fit5` Effects Summary
+
+```{r}
+#| echo: true
+summary(fit5_ols, conf.int = 0.90)
+```
+
+# Nomograms for our five models
+
+## `fit1` nomogram
+
+```{r}
+#| echo: true
+
+plot(nomogram(fit1_ols), lplabel = "Life Ladder")
+```
+
+## `fit2` nomogram
+
+```{r}
+#| echo: true
+
+plot(nomogram(fit2_ols), lplabel = "Life Ladder")
+```
+
+## `fit3` nomogram
+
+```{r}
+#| echo: true
+#| fig-height: 7
+
+plot(nomogram(fit3_ols), lplabel = "Life Ladder")
+```
+
+## `fit4` nomogram
+
+```{r}
+#| echo: true
+#| fig-height: 8
+
+plot(nomogram(fit4_ols), lplabel = "Life Ladder")
+```
+
+## `fit5` nomogram
+
+```{r}
+#| echo: true
+#| fig-height: 9
+
+plot(nomogram(fit5_ols), lplabel = "Life Ladder")
+```
+
+# ANOVA tables and $\eta^2$ measures
+
+## Our five models
+
+Model | Predictors
+:----: | :----------------------------------------------------------
+`fit1` | `social`, `life_exp`, and `freedom` main effects
+`fit2` | `log_gdp`, `ftemp_c` and their interaction
+`fit3` | `social`, `life_exp`, `freedom`, `corruption`, `region4`, 2 splines and an interaction
+`fit4` | main effects of all 11 predictors
+`fit5` | all 11 predictors plus a spline, a polynomial and an interaction
+
+## `anova` for `fit1`
+
+```{r}
+#| echo: true
+
+anova(fit1_lm)
+```
+
+- Total SS = 75.448+11.393+9.276+28.446 = 124.563
+- So `social` accounts for 75.448 / 124.563 = 60.57% of the variation in `ladder`
+
+## Effect Sizes, by $\eta^2$
+
+- $\eta^2$: What proportion of the total variance in `ladder` is accounted for by each of the predictors, ignoring the other variables?
+
+```{r}
+#| echo: true
+eta_squared(fit1_lm, partial = FALSE, ci = 0.90)
+```
+
+## Effect Sizes, by Partial $\eta^2$
+
+- Partial $\eta^2$: **After** adjusting for the other predictors, what proportion of the *remaining* variance in `ladder` is accounted for by each predictor?
+
+```{r}
+#| echo: true
+eta_squared(fit1_lm, partial = TRUE, ci = 0.90)
+```
+
+## `lm()` vs. `ols()` for ANOVA?
+
+- Different arrangement, includes REGRESSION totals.
+
+```{r}
+#| echo: true
+
+anova(fit1_ols)
+```
+
+## `fit1` ANOVA plot with $\chi^2$
+
+```{r}
+#| echo: true
+
+plot(anova(fit1_ols))
+```
+
+## Model `fit2`
+
+Model | Predictors
+:----: | :----------------------------------------------------------
+`fit1` | `social`, `life_exp`, and `freedom` main effects
+`fit2` | `log_gdp`, `ftemp_c` and their interaction
+`fit3` | `social`, `life_exp`, `freedom`, `corruption`, `region4`, 2 splines and an interaction
+`fit4` | main effects of all 11 predictors
+`fit5` | all 11 predictors plus a spline, a polynomial and an interaction
+
+
+## `anova` for `fit2`
+
+```{r}
+#| echo: true
+
+anova(fit2_ols)
+```
+
+## `fit2` Effect Sizes, by $\eta^2$
+
+```{r}
+#| echo: true
+eta_squared(fit2_lm, partial = FALSE, ci = 0.90)
+
+eta_squared(fit2_lm, partial = TRUE, ci = 0.90)
+```
+
+## `fit2` ANOVA plot with $\chi^2$
+
+```{r}
+#| echo: true
+
+plot(anova(fit2_ols))
+```
+
+## Model `fit3`
+
+Model | Predictors
+:----: | :----------------------------------------------------------
+`fit1` | `social`, `life_exp`, and `freedom` main effects
+`fit2` | `log_gdp`, `ftemp_c` and their interaction
+`fit3` | `social`, `life_exp`, `freedom`, `corruption`, `region4`, 2 splines and an interaction
+`fit4` | main effects of all 11 predictors
+`fit5` | all 11 predictors plus a spline, a polynomial and an interaction
+
+
+## `anova` for `fit3`
+
+```{r}
+#| echo: true
+
+anova(fit3_ols)
+```
+
+## `fit3` Effect Sizes, by $\eta^2$
+
+```{r}
+#| echo: true
+eta_squared(fit3_lm, partial = FALSE, ci = 0.90)
+```
+
+## `fit3` ANOVA plot with $\chi^2$
+
+```{r}
+#| echo: true
+
+plot(anova(fit3_ols))
+```
+
+## Model `fit4`
+
+Model | Predictors
+:----: | :----------------------------------------------------------
+`fit1` | `social`, `life_exp`, and `freedom` main effects
+`fit2` | `log_gdp`, `ftemp_c` and their interaction
+`fit3` | `social`, `life_exp`, `freedom`, `corruption`, `region4`, 2 splines and an interaction
+`fit4` | main effects of all 11 predictors
+`fit5` | all 11 predictors plus a spline, a polynomial and an interaction
+
+
+## `anova` for `fit4`
+
+```{r}
+#| echo: true
+
+anova(fit4_ols)
+```
+
+## `fit4` Effect Sizes, by $\eta^2$
+
+```{r}
+#| echo: true
+eta_squared(fit4_lm, partial = FALSE, ci = 0.90)
+```
+
+## `fit4` ANOVA plot with $\chi^2$
+
+```{r}
+#| echo: true
+
+plot(anova(fit4_ols))
+```
+
+## Model `fit5`
+
+Model | Predictors
+:----: | :----------------------------------------------------------
+`fit1` | `social`, `life_exp`, and `freedom` main effects
+`fit2` | `log_gdp`, `ftemp_c` and their interaction
+`fit3` | `social`, `life_exp`, `freedom`, `corruption`, `region4`, 2 splines and an interaction
+`fit4` | main effects of all 11 predictors
+`fit5` | all 11 predictors plus a spline, a polynomial and an interaction
+
+## `anova` for `fit5`
+
+```{r}
+#| echo: true
+
+anova(fit5_ols)
+```
+
+## `fit5` Effect Sizes, by $\eta^2$
+
+```{r}
+#| echo: true
+eta_squared(fit4_lm, partial = FALSE, ci = 0.90)
+```
+
+## `fit5` ANOVA plot with $\chi^2$
+
+```{r}
+#| echo: true
+
+plot(anova(fit5_ols))
+```
+
+# Model Performance for our Five Models
+
+## Our five models {.smaller}
+
+Model | `ladder` is predicted using... | df
+:----: | :------------------------------------------------------- | ---:
+fit1 | social + life_exp + freedom | 3
+fit2 | log_gdp * ftemp_c | 3
+fit3 | rcs(social,3) + rcs(life_exp, 3) + region4 + life_exp %ia% region4 + freedom + corruption | 12
+fit4 | log_gdp + social + life_exp + freedom + generosity + corruption + pos_affect + neg_affect + ftemp_c + fpop_dens + region4 | 14
+fit5 | rcs(log_gdp,4) + poly(social,2) + life_exp * region4 + freedom + generosity + corruption + pos_affect + neg_affect + ftemp_c + fpop_dens | 20
+
+
+## Model Performance for `fit1`
+
+```{r}
+#| echo: true
+
+model_performance(fit1_lm) |>
+  mutate(n = n_obs(fit1_lm), df = n - fit1_lm$df.residual - 1) |>
+  mutate(model = "fit1") |> relocate(model, everything()) |>
+  gt() |> fmt_number(AIC:Sigma, decimals = 3) |> 
+  fmt_number(n:df, decimals = 0) |>
+  tab_options(table.font.size = 24) |> opt_stylize(style = 2, color = "blue")
+```
+
+### Does it matter if instead we use the `ols()` fit?
+
+- Yes, a little. `model_performance()` for an `ols()` fit doesn't show adjusted $R^2$, so I'll stick with the `lm()` fit.
+
+## glance results for `fit1`
+
+- `glance()`, like `tidy()`, doesn't work for `ols()` fits.
+
+```{r}
+#| echo: true
+
+glance(fit1_lm) |> select(r.squared:df) |> 
+  mutate(model = "fit1") |> relocate(model, everything()) |>
+  gt() |> fmt_number(columns = -df, decimals = 3) |>
+  tab_options(table.font.size = 24) |> opt_stylize(style = 2, color = "blue")
+```
+
+```{r}
+#| echo: true
+
+glance(fit1_lm) |> select(logLik:nobs) |>
+  gt() |> fmt_number(columns = -c(df.residual, nobs), decimals = 3) |>
+  tab_options(table.font.size = 24) |> opt_stylize(style = 2, color = "blue")
+```
+
+
+## Model Performance for `fit2`
+
+```{r}
+#| echo: true
+
+model_performance(fit2_lm) |>
+  mutate(n = n_obs(fit2_lm), df = n - fit2_lm$df.residual - 1) |>
+  mutate(model = "fit2") |> relocate(model, everything()) |>
+  gt() |> fmt_number(AIC:Sigma, decimals = 3) |> 
+  fmt_number(n:df, decimals = 0) |>
+  tab_options(table.font.size = 24) |> opt_stylize(style = 2, color = "blue")
+```
+
+- In `glance()` but not `model_performance()`?
+
+```{r}
+#| echo: true
+
+glance(fit2_lm) |> select(statistic, p.value, logLik, deviance, df.residual) |>
+  gt() |>  fmt_number(columns = -df.residual, decimals = 3) |>
+  tab_options(table.font.size = 24) |> opt_stylize(style = 2, color = "blue")
+```
+
+## Model Performance for `fit3`
+
+```{r}
+#| echo: true
+
+model_performance(fit3_lm) |>
+  mutate(n = n_obs(fit3_lm), df = n - fit3_lm$df.residual - 1) |>
+  mutate(model = "fit3") |> relocate(model, everything()) |>
+  gt() |> fmt_number(AIC:Sigma, decimals = 3) |> 
+  fmt_number(n:df, decimals = 0) |>
+  tab_options(table.font.size = 24) |> opt_stylize(style = 2, color = "blue")
+
+glance(fit3_lm) |> select(statistic, p.value, logLik, deviance, df.residual) |>
+  gt() |>  fmt_number(columns = -df.residual, decimals = 3) |>
+  tab_options(table.font.size = 24) |> opt_stylize(style = 2, color = "blue")
+```
+
+## Model Performance for `fit4`
+
+```{r}
+#| echo: true
+
+model_performance(fit4_lm) |>
+  mutate(n = n_obs(fit4_lm), df = n - fit4_lm$df.residual - 1) |>
+  mutate(model = "fit4") |> relocate(model, everything()) |>
+  gt() |> fmt_number(AIC:Sigma, decimals = 3) |> 
+  fmt_number(n:df, decimals = 0) |>
+  tab_options(table.font.size = 24) |> opt_stylize(style = 2, color = "blue")
+
+glance(fit4_lm) |> select(statistic, p.value, logLik, deviance, df.residual) |>
+  gt() |>  fmt_number(columns = -df.residual, decimals = 3) |>
+  tab_options(table.font.size = 24) |> opt_stylize(style = 2, color = "blue")
+```
+
+## Model Performance for `fit5`
+
+```{r}
+#| echo: true
+
+model_performance(fit5_lm) |>
+  mutate(n = n_obs(fit5_lm), df = n - fit5_lm$df.residual - 1) |>
+  mutate(model = "fit5") |> relocate(model, everything()) |>
+  gt() |> fmt_number(AIC:Sigma, decimals = 3) |> 
+  fmt_number(n:df, decimals = 0) |>
+  tab_options(table.font.size = 24) |> opt_stylize(style = 2, color = "blue")
+
+glance(fit5_lm) |> select(statistic, p.value, logLik, deviance, df.residual) |>
+  gt() |>  fmt_number(columns = -df.residual, decimals = 3) |>
+  tab_options(table.font.size = 24) |> opt_stylize(style = 2, color = "blue")
+```
+
+# Comparing Performance in the Training Sample
+
+## Comparing across the five models
+
+```{r}
+#| echo: true
+
+plot(compare_performance(fit1_lm, fit2_lm, fit3_lm, fit4_lm, fit5_lm, 
+                         metrics = "common"))
+```
+
+## Comparing across the five models
+
+```{r}
+#| echo: true
+
+plot(compare_performance(fit1_lm, fit2_lm, fit3_lm, fit4_lm, fit5_lm, 
+                         metrics = "all"))
+```
+
+## Comparing across the five models
+
+```{r}
+#| echo: true
+
+compare_performance(fit1_lm, fit2_lm, fit3_lm, fit4_lm, fit5_lm, 
+                    metrics = "common")
+```
+
+## Use `ols()` fits instead?
+
+- drops adjusted $R^2$.
+
+```{r}
+#| echo: true
+
+compare_performance(fit1_ols, fit2_ols, fit3_ols, fit4_ols, fit5_ols, 
+                    metrics = "common")
+```
+
+## Error Summaries in Training Sample
+
+Summarize mean absolute error and root mean squared error using the training sample...
+
+```{r}
+#| echo: true
+train_err <- tibble(
+  mod = c("fit1", "fit2", "fit3", "fit4", "fit5"),
+  MAE = c(performance_mae(fit1_lm), performance_mae(fit2_lm), 
+          performance_mae(fit3_lm), performance_mae(fit4_lm), 
+          performance_mae(fit5_lm)),
+  RMSE = c(performance_rmse(fit1_lm), performance_rmse(fit2_lm),
+           performance_rmse(fit3_lm), performance_rmse(fit4_lm),
+           performance_rmse(fit5_lm)))
+
+train_err
+```
+
+# Checking Model Assumptions
+
+## Model `fit1`
+
+```{r}
+#| echo: true
+model_performance(fit1_lm)
+model_parameters(fit1_lm)
+```
+
+
+## `fit1` plots A and B
+
+```{r}
+#| echo: true
+
+check_model(fit1_lm, check = c("pp_check", "vif"))
+```
+
+## `fit1` plots C and D
+
+```{r}
+#| echo: true
+
+check_model(fit1_lm, check = c("linearity", "homogeneity"))
+```
+
+## `fit1` additional summaries for B and D
+
+```{r}
+#| echo: true
+
+check_collinearity(fit1_lm)
+
+check_heteroscedasticity(fit1_lm)
+```
+
+
+## `fit1` plots E and F
+
+```{r}
+#| echo: true
+
+check_model(fit1_lm, detrend = FALSE, check = c("qq", "outliers"))
+```
+
+## `fit1` additional summaries for E and F
+
+```{r}
+#| echo: true
+
+check_outliers(fit1_lm)
+
+check_normality(fit1_lm)
+```
+
+## Calibration Plot for `fit1`
+
+```{r}
+#| echo: true
+
+set.seed(43203); plot(calibrate(fit1_ols, method = "boot", B = 300))
+```
+
+## Calibration Plot Evaluation
+
+- Ideal line shows predicted = observed
+- Apparent line shows loess smooth over the observed data
+- Bias-Corrected incorporates 300 bootstrapped replications to account for some potential **over-fitting** in estimating the calibration curve
+
+*Overfitting* occurs when the model performs well on training data but poorly on new data, usually because the model is too complex for the data set it is trained on.
+
+## Calibration Plot Summary Statistics
+
+Calling the calibration plot also summarizes:
+
+- mean absolute error, 
+- mean squared error and 
+- 90th percentile of absolute error, 
+
+where error here refers to the difference between the predicted values and the corresponding bias-corrected calibrated values.
+
+## Model `fit2`
+
+```{r}
+#| echo: true
+model_performance(fit2_lm)
+model_parameters(fit2_lm)
+```
+
+## `fit2` plots A and B
+
+```{r}
+#| echo: true
+
+check_model(fit2_lm, check = c("pp_check", "vif"))
+```
+
+## `fit2` plots C and D
+
+```{r}
+#| echo: true
+
+check_model(fit2_lm, check = c("linearity", "homogeneity"))
+```
+
+## `fit2` additional summaries for B and D
+
+- Remember we have an interaction here, so ...
+
+```{r}
+#| echo: true
+
+check_collinearity(fit2_lm)
+
+check_heteroscedasticity(fit2_lm)
+```
+
+## `fit2` plots E and F
+
+```{r}
+#| echo: true
+
+check_model(fit2_lm, detrend = FALSE, check = c("qq", "outliers"))
+```
+
+## `fit2` additional summaries for E and F
+
+```{r}
+#| echo: true
+
+check_outliers(fit2_lm)
+
+check_normality(fit2_lm)
+```
+
+## Calibration Plot for `fit2`
+
+```{r}
+#| echo: true
+
+set.seed(43204); plot(calibrate(fit2_ols, method = "boot", B = 300))
+```
+
+## Model `fit3` performance
+
+```{r}
+#| echo: true
+model_performance(fit3_lm)
+```
+
+## Model `fit3` parameters
+
+```{r}
+#| echo: true
+model_parameters(fit3_lm)
+```
+
+
+## `fit3` plots A and B
+
+```{r}
+#| echo: true
+
+check_model(fit3_lm, check = c("pp_check", "vif"))
+```
+
+## `fit3` plots C and D
+
+```{r}
+#| echo: true
+
+check_model(fit3_lm, check = c("linearity", "homogeneity"))
+```
+
+## `fit3` additional summaries for B and D
+
+```{r}
+#| echo: true
+
+check_collinearity(fit3_lm)
+
+check_heteroscedasticity(fit3_lm)
+```
+
+
+## `fit3` plots E and F
+
+```{r}
+#| echo: true
+
+check_model(fit3_lm, detrend = FALSE, check = c("qq", "outliers"))
+```
+
+## `fit3` additional summaries for E and F
+
+```{r}
+#| echo: true
+
+check_outliers(fit3_lm)
+
+check_normality(fit3_lm)
+```
+
+## Calibration Plot for `fit3`
+
+```{r}
+#| echo: true
+
+set.seed(43205); plot(calibrate(fit3_ols, method = "boot", B = 300))
+```
+
+## Model `fit4` performance
+
+```{r}
+#| echo: true
+model_performance(fit4_lm)
+```
+
+## Model `fit4` parameters
+
+```{r}
+#| echo: true
+model_parameters(fit4_lm)
+```
+
+
+## `fit4` plots A and B
+
+```{r}
+#| echo: true
+
+check_model(fit4_lm, check = c("pp_check", "vif"))
+```
+
+## `fit4` plots C and D
+
+```{r}
+#| echo: true
+
+check_model(fit4_lm, check = c("linearity", "homogeneity"))
+```
+
+## `fit4` additional summaries for B and D
+
+```{r}
+#| echo: true
+
+check_collinearity(fit4_lm)
+
+check_heteroscedasticity(fit4_lm)
+```
+
+
+## `fit4` plots E and F
+
+```{r}
+#| echo: true
+
+check_model(fit4_lm, detrend = FALSE, check = c("qq", "outliers"))
+```
+
+## `fit4` additional summaries for E and F
+
+```{r}
+#| echo: true
+
+check_outliers(fit4_lm)
+
+check_normality(fit4_lm)
+```
+
+## Calibration Plot for `fit4`
+
+```{r}
+#| echo: true
+
+set.seed(43206); plot(calibrate(fit4_ols, method = "boot", B = 300))
+```
+
+## Model `fit5` performance
+
+```{r}
+#| echo: true
+model_performance(fit5_lm)
+```
+
+## Model `fit5` parameters
+
+```{r}
+#| echo: true
+model_parameters(fit5_lm)
+```
+
+## `fit5` plots A and B
+
+```{r}
+#| echo: true
+
+check_model(fit5_lm, check = c("pp_check", "vif"))
+```
+
+## `fit5` plots C and D
+
+```{r}
+#| echo: true
+
+check_model(fit5_lm, check = c("linearity", "homogeneity"))
+```
+
+## `fit5` additional summaries for B and D
+
+```{r}
+#| echo: true
+
+check_collinearity(fit5_lm)
+
+check_heteroscedasticity(fit5_lm)
+```
+
+
+## `fit5` plots E and F
+
+```{r}
+#| echo: true
+
+check_model(fit5_lm, detrend = FALSE, check = c("qq", "outliers"))
+```
+
+## `fit5` additional summaries for E and F
+
+```{r}
+#| echo: true
+
+check_outliers(fit5_lm)
+
+check_normality(fit5_lm)
+```
+
+## Calibration Plot for `fit5`
+
+```{r}
+#| echo: true
+
+set.seed(43207); plot(calibrate(fit5_ols, method = "boot", B = 300))
+```
+
+# Making Predictions
+
+## Status of the USA
+
+- USA is in the training sample
+
+```{r}
+#| echo: true
+
+usadat <- happy_si_train |> filter(iso3 == "USA") |>
+  select(iso3, country, ladder, social, life_exp, freedom, everything())
+
+usadat
+```
+
+## USA `fit1` Predictions (90% PI)
+
+- Using the `lm()` fit, and a prediction interval...
+
+```{r}
+#| echo: true
+predict(fit1_lm, newdata = usadat, interval = "confidence", level = 0.90)
+```
+
+- Using the `ols()` fit:
+
+```{r}
+#| echo: true
+predict(fit1_ols, newdata = usadat, 
+        conf.int = 0.90, conf.type = "individual") |>
+  as_vector()
+```
+
+## USA `fit1` Predictions (90% CI)
+
+- Using the `lm()` fit, and a confidence interval for a mean...
+
+```{r}
+#| echo: true
+predict(fit1_lm, newdata = usadat, interval = "confidence", level = 0.90)
+```
+
+- Using the `ols()` fit:
+
+```{r}
+#| echo: true
+predict(fit1_ols, newdata = usadat, 
+        conf.int = 0.90, conf.type = "mean") |>
+  as_vector()
+```
+
+## Predictions for USA by each fit
+
+- Recall actual USA `ladder` is 6.52
+
+```{r}
+#| echo: true
+predict(fit1_lm, newdata = usadat, interval = "confidence", level = 0.90)
+predict(fit2_lm, newdata = usadat, interval = "confidence", level = 0.90)
+predict(fit3_lm, newdata = usadat, interval = "confidence", level = 0.90)
+predict(fit4_lm, newdata = usadat, interval = "confidence", level = 0.90)
+predict(fit5_lm, newdata = usadat, interval = "confidence", level = 0.90)
+```
+
+
+
+## Using `augment()` after a fit {.smaller}
+
+```{r}
+#| echo: true
+fit1_lm_aug <- augment(fit1_lm)
+
+names(fit1_lm_aug)
+```
+
+- `augment` stores `.fitted`: predicted values, `.resid`: residuals and
+- `.hat` = leverage values (diagonal of the hat matrix)
+- `.sigma` = estimated sigma when this observation is dropped from model 
+- `.cooksd` = Cook's distance
+- `.std.resid` = standardized residuals
+
+- Details at the broom site on [augment for a linear model](https://broom.tidymodels.org/reference/augment.lm.html).
+- `augment()` doesn't work with `ols()` fits.
+
+## Using `augment()` in our training sample
+
+```{r}
+#| echo: true
+fit1_aug <- augment(fit1_lm) |> mutate(mod = "fit1") |> relocate(mod)
+fit2_aug <- augment(fit2_lm) |> mutate(mod = "fit2") |> relocate(mod)
+fit3_aug <- augment(fit3_lm) |> mutate(mod = "fit3") |> relocate(mod)
+fit4_aug <- augment(fit4_lm) |> mutate(mod = "fit4") |> relocate(mod)
+fit5_aug <- augment(fit5_lm) |> mutate(mod = "fit5") |> relocate(mod)
+```
+
+Sample results: first two rows of `fit4_aug`...
+
+```{r}
+#| echo: true
+
+fit4_aug |> head(2)
+```
+
+
+# Using our Test Sample
+
+## Predicting `fit1` into a Test Sample
+
+```{r}
+#| echo: true
+
+test_1 <- augment(fit1_lm, newdata = happy_si_test)
+
+test_1_res <- test_1 |> 
+  summarise(MAPE = mean(abs(.resid)),
+            maxAPE = max(abs(.resid)),
+            RMSPE = sqrt(mean(.resid^2)),
+            rsqr = cor(ladder, .fitted)^2) 
+
+test_1_res |>  gt() |> tab_options(table.font.size = 24) |>
+  fmt_number(decimals = 3) |> opt_stylize(style = 5, color = "cyan")
+```
+
+## Predicting 5 models in Test Sample
+
+```{r}
+#| echo: true
+
+test_1 <- augment(fit1_lm, newdata = happy_si_test) |> mutate(mod = "fit1")
+test_2 <- augment(fit2_lm, newdata = happy_si_test) |> mutate(mod = "fit2")
+test_3 <- augment(fit3_lm, newdata = happy_si_test) |> mutate(mod = "fit3")
+test_4 <- augment(fit4_lm, newdata = happy_si_test) |> mutate(mod = "fit4")
+test_5 <- augment(fit5_lm, newdata = happy_si_test) |> mutate(mod = "fit5")
+
+test_res <- bind_rows(test_1, test_2, test_3, test_4, test_5) |> 
+  relocate(mod, .fitted, ladder, .resid, everything())
+
+test_res |> head(3)
+```
+
+## Error Summaries in Test Sample
+
+```{r}
+#| echo: true
+
+test_summ <- test_res |> 
+  group_by(mod) |>
+  summarise(MAPE = mean(abs(.resid)),
+            maxAPE = max(abs(.resid)),
+            RMSPE = sqrt(mean(.resid^2)),
+            rsqr = cor(ladder, .fitted)^2) 
+
+test_summ |> gt() |> tab_options(table.font.size = 24) |>
+  fmt_number(decimals = 3) |> opt_stylize(style = 5, color = "cyan")
+```
+
+# Validated $R^2$ and MSE for our Five Models
+
+## Validated Summaries for `fit1`
+
+```{r}
+#| echo: true
+
+set.seed(43208)
+validate(fit1_ols, method = "boot", B = 300)
+```
+
+## Validated Summaries for `fit2`
+
+```{r}
+#| echo: true
+
+set.seed(43209)
+validate(fit2_ols, method = "boot", B = 300)
+```
+
+## Validated Summaries for `fit3`
+
+```{r}
+#| echo: true
+
+set.seed(43210)
+validate(fit3_ols, method = "boot", B = 300)
+```
+
+## Validated Summaries for `fit4`
+
+```{r}
+#| echo: true
+
+set.seed(43211)
+validate(fit4_ols, method = "boot", B = 300)
+```
+
+## Validated Summaries for `fit5`
+
+```{r}
+#| echo: true
+
+set.seed(43212)
+validate(fit5_ols, method = "boot", B = 300)
+```
+
+# Other Means of Validation
+
+## Cross-Validation via Holdout Sample
+
+```{r}
+#| echo: true
+
+set.seed(43213)
+performance_cv(fit1_lm, method = "holdout", metrics = "all", prop = 0.3)
+performance_cv(fit2_lm, method = "holdout", metrics = "all", prop = 0.3)
+performance_cv(fit3_lm, method = "holdout", metrics = "all", prop = 0.3)
+```
+
+## Cross-Validation continues
+
+```{r}
+#| echo: true
+
+set.seed(43213)
+performance_cv(fit4_lm, method = "holdout", metrics = "all", prop = 0.3)
+performance_cv(fit5_lm, method = "holdout", metrics = "all", prop = 0.3)
+```
+
+## 5-fold Cross-Validation
+
+```{r}
+#| echo: true
+
+set.seed(43214)
+performance_cv(fit1_lm, method = "k_fold", metrics = "all", k = 5)
+performance_cv(fit2_lm, method = "k_fold", metrics = "all", k = 5)
+performance_cv(fit3_lm, method = "k_fold", metrics = "all", k = 5)
+```
+
+## 5-fold Cross-Validation continues
+
+```{r}
+#| echo: true
+set.seed(43214)
+performance_cv(fit4_lm, method = "k_fold", metrics = "all", k = 5)
+performance_cv(fit5_lm, method = "k_fold", metrics = "all", k = 5)
+```
+
+## Accuracy and cross-validation
+
+```{r}
+#| echo: true
+
+set.seed(43215)
+performance_accuracy(fit1_lm, method = "cv", k = 5, ci = 0.90)
+performance_accuracy(fit2_lm, method = "cv", k = 5, ci = 0.90)
+performance_accuracy(fit3_lm, method = "cv", k = 5, ci = 0.90)
+```
+
+## Accuracy and c-v, continued
+
+```{r}
+#| echo: true
+set.seed(43215)
+performance_accuracy(fit4_lm, method = "cv", k = 5, ci = 0.90)
+performance_accuracy(fit5_lm, method = "cv", k = 5, ci = 0.90)
+```
+
+# Multiple Imputation with `mice`
+
+## Our five models {.smaller}
+
+Model | `ladder` is predicted using... | df
+:----: | :------------------------------------------------------- | ---:
+fit1 | social + life_exp + freedom | 3
+fit2 | log_gdp * ftemp_c | 3
+fit3 | rcs(social,3) + rcs(life_exp, 3) + region4 + life_exp %ia% region4 + freedom + corruption | 12
+fit4 | log_gdp + social + life_exp + freedom + generosity + corruption + pos_affect + neg_affect + ftemp_c + fpop_dens + region4 | 14
+fit5 | rcs(log_gdp,4) + poly(social,2) + life_exp * region4 + freedom + generosity + corruption + pos_affect + neg_affect + ftemp_c + fpop_dens | 20
+
+## Build 15 imputations, estimate `fit1`
+
+Why are we using 15 imputations?
+
+```{r}
+#| echo: true
+prop_miss_case(happy)
+```
+
+Let's run `fit1`...
+
+```{r}
+#| echo: true
+#| cache: true
+fit1_imp_ests <- 
+  mice(happy, m = 15, seed = 43216, print = FALSE) |>
+  with(lm(ladder ~ social + life_exp + freedom)) |>
+  pool()
+```
+
+## What's in `fit1_imp_ests`?
+
+```{r}
+#| echo: true
+
+fit1_imp_ests
+```
+
+## Across 15 imputations: `fit1` estimates
+
+```{r}
+#| echo: true
+#| cache: true
+
+glance(fit1_imp_ests)
+model_parameters(fit1_imp_ests, ci = 0.90)
+```
+
+## Build 15 imputations, estimate `fit2`
+
+```{r}
+#| echo: true
+#| cache: true
+
+fit2_imp_ests <- 
+  mice(happy, m = 15, seed = 43217, print = FALSE) |>
+  with(lm(ladder ~ log_gdp * ftemp_c)) |>
+  pool()
+```
+
+## Across 15 imputations: `fit2` estimates
+
+```{r}
+#| echo: true
+#| cache: true
+
+glance(fit2_imp_ests)
+model_parameters(fit2_imp_ests, ci = 0.90)
+```
+
+## Build 15 imputations, estimate `fit3`
+
+```{r}
+#| echo: true
+#| cache: true
+
+fit3_imp_ests <- 
+  mice(happy, m = 15, seed = 43218, print = FALSE) |>
+  with(lm(ladder ~ rcs(social,3) + rcs(life_exp, 3) + region4 + 
+            life_exp %ia% region4 + freedom + corruption)) |>
+  pool()
+```
+
+## Across 15 imputations: `fit2` estimates
+
+```{r}
+#| echo: true
+#| cache: true
+
+glance(fit3_imp_ests)
+model_parameters(fit3_imp_ests, ci = 0.90)
+```
+
+## Build 15 imputations, estimate `fit4`
+
+```{r}
+#| echo: true
+#| cache: true
+
+fit4_imp_ests <- 
+  mice(happy, m = 15, seed = 43219, print = FALSE) |>
+  with(lm(ladder ~ log_gdp + social + life_exp + freedom + 
+            generosity + corruption + pos_affect + neg_affect + 
+            ftemp_c + fpop_dens + region4)) |>
+  pool()
+```
+
+## Across 15 imputations: `fit4` estimates
+
+```{r}
+#| echo: true
+#| cache: true
+
+glance(fit4_imp_ests)
+model_parameters(fit4_imp_ests, ci = 0.90)
+```
+
+## Build 15 imputations, estimate `fit5`
+
+```{r}
+#| echo: true
+#| cache: true
+
+fit5_imp_ests <- 
+  mice(happy, m = 15, seed = 43220, print = FALSE) |>
+  with(lm(ladder ~ rcs(log_gdp,4) + poly(social,2) + life_exp * region4 + 
+            freedom + generosity + corruption + pos_affect + 
+            neg_affect + ftemp_c + fpop_dens)) |>
+  pool()
+```
+
+## Across 15 imputations: `fit5` estimates
+
+```{r}
+#| echo: true
+#| cache: true
+
+glance(fit5_imp_ests)
+model_parameters(fit5_imp_ests, ci = 0.90)
+```
+
+# Multiple Imputation with `aregImpute()`
+
+## Our five models {.smaller}
+
+Model | `ladder` is predicted using... | df
+:----: | :------------------------------------------------------- | ---:
+fit1 | social + life_exp + freedom | 3
+fit2 | log_gdp * ftemp_c | 3
+fit3 | rcs(social,3) + rcs(life_exp, 3) + region4 + life_exp %ia% region4 + freedom + corruption | 12
+fit4 | log_gdp + social + life_exp + freedom + generosity + corruption + pos_affect + neg_affect + ftemp_c + fpop_dens + region4 | 14
+fit5 | rcs(log_gdp,4) + poly(social,2) + life_exp * region4 + freedom + generosity + corruption + pos_affect + neg_affect + ftemp_c + fpop_dens | 20
+
+## Use `aregImpute()` for `fit1`
+
+```{r}
+#| echo: true
+#| cache: true
+
+set.seed(43221)
+dd <- datadist(happy)
+options(datadist = "dd")
+
+fit1_imps15 <- aregImpute(~ ladder + social + life_exp + freedom,
+                          nk = c(0, 3), tlinear = FALSE, data = happy, 
+                          B = 10, n.impute = 15, pr = FALSE)
+
+```
+
+## Imputation Results for `fit1`
+
+```{r}
+#| echo: true
+
+fit1_imps15
+```
+
+## Fit `fit1` with `fit.mult.impute()`
+
+```{r}
+#| echo: true
+#| cache: true
+
+fit1_imp <- 
+  fit.mult.impute(ladder ~ social + life_exp + freedom,
+                  fitter = ols, xtrans = fit1_imps15, data = happy,
+                  fitargs=list(x = TRUE, y = TRUE))
+```
+
+## What's in `fit1_imp`?
+
+```{r}
+#| echo: true
+fit1_imp
+```
+
+## Summary of `fit1` After Imputation
+
+```{r}
+#| echo: true
+
+summary(fit1_imp)
+```
+
+## `fit1` Effects Plot after imputation 
+
+```{r}
+#| echo: true
+plot(summary(fit1_imp))
+```
+
+## Prediction Plot: `fit1` post-imputation
+
+```{r}
+#| echo: true
+
+ggplot(Predict(fit1_imp))
+```
+
+
+## Nomogram of `fit1` after imputation
+
+```{r}
+#| echo: true
+plot(nomogram(fit1_imp), lplabel = "Life Ladder")
+```
+
+## `fit1` Bootstrap Validation after Imputation
+
+```{r}
+#| echo: true
+
+set.seed(43222)
+validate(fit1_imp, method = "boot", B = 300)
+```
+
+## Use `aregImpute()` for `fit2`
+
+```{r}
+#| echo: true
+#| cache: true
+
+set.seed(4324324)
+dd <- datadist(happy)
+options(datadist = "dd")
+
+fit2_imps15 <- aregImpute(~ ladder + log_gdp + ftemp_c,
+                          nk = c(0, 3), tlinear = FALSE, data = happy, 
+                          B = 10, n.impute = 15, pr = FALSE)
+
+```
+
+## Imputation Results for `fit2`
+
+```{r}
+#| echo: true
+
+fit2_imps15
+```
+
+## Fit `fit2` with `fit.mult.impute()`
+
+```{r}
+#| echo: true
+#| cache: true
+
+fit2_imp <- 
+  fit.mult.impute(ladder ~ log_gdp * ftemp_c,
+                  fitter = ols, xtrans = fit2_imps15, data = happy,
+                  fitargs=list(x = TRUE, y = TRUE))
+```
+
+## What's in `fit2_imp`?
+
+```{r}
+#| echo: true
+
+fit2_imp
+```
+
+## Summary of `fit2` After Imputation
+
+```{r}
+#| echo: true
+
+summary(fit2_imp)
+```
+
+## `fit2` Effects Plot after imputation 
+
+```{r}
+#| echo: true
+plot(summary(fit2_imp))
+```
+
+## Prediction Plot: `fit2` post-imputation
+
+```{r}
+#| echo: true
+
+ggplot(Predict(fit2_imp), layout = c(1,2))
+```
+
+## Nomogram of `fit2` after imputation
+
+```{r}
+#| echo: true
+plot(nomogram(fit2_imp), lplabel = "Life Ladder")
+```
+
+## `fit2` Bootstrap Validation after Imputation
+
+```{r}
+#| echo: true
+
+set.seed(43223)
+validate(fit2_imp, method = "boot", B = 300)
+```
+
+## Use `aregImpute()` for `fit3`
+
+```{r}
+#| echo: true
+#| cache: true
+
+set.seed(43224)
+dd <- datadist(happy)
+options(datadist = "dd")
+
+fit3_imps15 <- aregImpute(~ ladder + social + life_exp + region4 + 
+                            freedom + corruption,
+                          nk = c(0, 3), tlinear = FALSE, data = happy, 
+                          B = 10, n.impute = 15, pr = FALSE)
+
+```
+
+## Imputation Results for `fit3`
+
+```{r}
+#| echo: true
+
+fit3_imps15
+```
+
+## Fit `fit3` with `fit.mult.impute()`
+
+```{r}
+#| echo: true
+#| cache: true
+
+fit3_imp <- 
+  fit.mult.impute(ladder ~ rcs(social,3) + rcs(life_exp, 3) + region4 + 
+                    life_exp %ia% region4 + freedom + corruption,
+                  fitter = ols, xtrans = fit3_imps15, data = happy,
+                  fitargs=list(x = TRUE, y = TRUE))
+```
+
+## What's in `fit3_imp`?
+
+```{r}
+#| echo: true
+
+fit3_imp
+```
+
+## Summary of `fit3` After Imputation
+
+```{r}
+#| echo: true
+
+summary(fit3_imp)
+```
+
+## `fit3` Effects Plot after imputation 
+
+```{r}
+#| echo: true
+plot(summary(fit3_imp))
+```
+
+
+## Prediction Plot: `fit3` post-imputation
+
+```{r}
+#| echo: true
+
+ggplot(Predict(fit3_imp))
+```
+
+## Nomogram of `fit3` after imputation
+
+```{r}
+#| echo: true
+plot(nomogram(fit3_imp), lplabel = "Life Ladder")
+```
+
+## `fit3` Bootstrap Validation after Imputation
+
+```{r}
+#| echo: true
+
+set.seed(43225)
+validate(fit3_imp, method = "boot", B = 300)
+```
+
+## Use `aregImpute()` for `fit4`
+
+```{r}
+#| echo: true
+#| cache: true
+
+set.seed(43226)
+dd <- datadist(happy)
+options(datadist = "dd")
+
+fit4_imps15 <- aregImpute(~ ladder + log_gdp + social + life_exp + 
+                            freedom + generosity + corruption + 
+                            pos_affect + neg_affect + ftemp_c + 
+                            fpop_dens + region4,
+                          nk = c(0, 3), tlinear = FALSE, data = happy, 
+                          B = 10, n.impute = 15, pr = FALSE)
+```
+
+## Imputation Results for `fit4`
+
+```{r}
+#| echo: true
+
+fit4_imps15
+```
+
+## Fit `fit4` with `fit.mult.impute()`
+
+```{r}
+#| echo: true
+#| cache: true
+
+fit4_imp <- 
+  fit.mult.impute(ladder ~ log_gdp + social + life_exp + freedom + 
+                    generosity + corruption + pos_affect + neg_affect + 
+                    ftemp_c + fpop_dens + region4,
+                  fitter = ols, xtrans = fit4_imps15, data = happy,
+                  fitargs=list(x = TRUE, y = TRUE))
+```
+
+## What's in `fit4_imp`?
+
+```{r}
+#| echo: true
+
+fit4_imp
+```
+
+## Summary of `fit4` After Imputation
+
+```{r}
+#| echo: true
+
+summary(fit4_imp)
+```
+
+## `fit4` Effects Plot after imputation 
+
+```{r}
+#| echo: true
+plot(summary(fit4_imp))
+```
+
+## Prediction Plot: `fit4` post-imputation
+
+```{r}
+#| echo: true
+
+ggplot(Predict(fit4_imp))
+```
+
+## Nomogram of `fit4` after imputation
+
+```{r}
+#| echo: true
+plot(nomogram(fit4_imp), lplabel = "Life Ladder")
+```
+
+## `fit4` Bootstrap Validation after Imputation
+
+```{r}
+#| echo: true
+
+set.seed(43227)
+validate(fit4_imp, method = "boot", B = 300)
+```
+
+## Use `aregImpute()` for `fit5`
+
+```{r}
+#| echo: true
+#| cache: true
+
+set.seed(43228)
+dd <- datadist(happy)
+options(datadist = "dd")
+
+fit5_imps15 <- aregImpute(~ ladder + log_gdp + social + life_exp + 
+                            freedom + generosity + corruption + 
+                            pos_affect + neg_affect + ftemp_c + 
+                            fpop_dens + region4,
+                          nk = c(0, 3), tlinear = FALSE, data = happy, 
+                          B = 10, n.impute = 15, pr = FALSE)
+```
+
+## Imputation Results for `fit5`
+
+```{r}
+#| echo: true
+
+fit5_imps15
+```
+
+## Fit `fit5` with `fit.mult.impute()`
+
+```{r}
+#| echo: true
+#| cache: true
+
+fit5_imp <- 
+  fit.mult.impute(ladder ~ rcs(log_gdp,4) + pol(social,2) + 
+                    life_exp * region4 + freedom + generosity + 
+                    corruption + pos_affect + neg_affect + 
+                    ftemp_c + fpop_dens,
+                  fitter = ols, xtrans = fit4_imps15, data = happy,
+                  fitargs=list(x = TRUE, y = TRUE))
+```
+
+## What's in `fit5_imp`?
+
+```{r}
+#| echo: true
+
+fit5_imp
+```
+
+## Summary of `fit5` After Imputation
+
+```{r}
+#| echo: true
+
+summary(fit5_imp)
+```
+
+## `fit5` Effects Plot after imputation 
+
+```{r}
+#| echo: true
+plot(summary(fit5_imp))
+```
+
+## Prediction Plot: `fit5` post-imputation
+
+```{r}
+#| echo: true
+
+ggplot(Predict(fit5_imp))
+```
+
+## Nomogram of `fit5` after imputation
+
+```{r}
+#| echo: true
+plot(nomogram(fit5_imp), lplabel = "Life Ladder")
+```
+
+## `fit5` Bootstrap Validation after Imputation
+
+```{r}
+#| echo: true
+
+set.seed(43229)
+validate(fit5_imp, method = "boot", B = 300)
+```
+
+# A Big Comparison, across all five models
+
+## Summaries in our training sample {.smaller}
+
+Training sample: *n* = 110 countries after single imputation.
+
+Model | `fit1` | `fit2` | `fit3` | `fit4` | `fit5`
+---------------- | -----: | -----: | -----: | -----: | -----:
+model df | 3 | 3 | 12 | 14 | 20
+raw R-sq | 0.788 | 0.631 | 0.829 | 0.843 | **0.847**
+adj. R-sq | 0.782 | 0.620 | 0.808 | **0.820** | 0.813
+RMSE | 0.541 | 0.713 | 0.486 | 0.465 | **0.459**
+MAE | 0.412 | 0.543 | 0.371 | 0.344 | **0.342**
+AIC | 187.0 | 247.9 | 181.4 | **175.6** | 184.8
+BIC | 200.5 | 261.4 | 219.2 | 218.8 | **196.4**
+
+## Bootstrapped Calibration Summaries {.smaller}
+
+Training sample: *n* = 110 countries after single imputation.
+
+Model | `fit1` | `fit2` | `fit3` | `fit4` | `fit5`
+---------------- | -----: | -----: | -----: | -----: | -----:
+Mean absolute error | 0.075 | **0.032** | 0.055 | 0.057 | 0.049
+Mean squared error | 0.00884 | **0.00201** | 0.00435 | 0.00508 | 0.00434 
+90th quantile abs error | 0.146 | **0.058** | 0.101 | 0.103 | 0.122
+
+- Model `fit2` looks like it's the best calibrated of these.
+- All of the models have at least some issues with regression assumptions.
+
+## Comparing R-square estimates
+
+These aren't cross-validated or bootstrap validated. These are just the raw $R^2$ values.
+
+Model | `fit1` | `fit2` | `fit3` | `fit4` | `fit5`
+---------------- | -----: | -----: | -----: | -----: | -----:
+Single imp | 0.788 | 0.631 | 0.829 | 0.843 | **0.847** 
+MI with mice | 0.775 | 0.569 | 0.813 | 0.830 | **0.837**
+MI with areg | 0.782 | 0.586 | 0.823 | 0.837 | **0.841**
+
+## Bootstrap-Validated Summaries
+
+- After single imputation:
+
+Model | `fit1` | `fit2` | `fit3` | `fit4` | `fit5`
+---------------- | -----: | -----: | -----: | -----: | -----:
+R-sq | 0.776 | 0.608 | 0.786 | **0.794** | 0.768
+MSE | 0.316 | 0.552 | 0.299 | **0.291** | 0.322
+
+- After multiple imputation with `aregImpute()`:
+
+Model | `fit1` | `fit2` | `fit3` | `fit4` | `fit5`
+---------------- | -----: | -----: | -----: | -----: | -----:
+R-sq | 0.774 | 0.506 | 0.783 | **0.792** | 0.776
+MSE | 0.298 | 0.636 | 0.287 | **0.271** | 0.294
+
+
+## Test Sample Error Summaries
+
+Test sample: *n* = 28 countries after single imputation.
+
+Model | `fit1` | `fit2` | `fit3` | `fit4` | `fit5`
+---------------- | -----: | -----: | -----: | -----: | -----:
+MAPE | 0.388 | 0.812 | 0.388 | 0.388 | **0.370**
+max APE | 1.122 | 3.518 | **0.896** | 1.003 | 0.985
+RMSPE | 0.509 | 1.235 | **0.458** | 0.475 | 0.469
+R-sq (val.) | 0.744 | 0.142 | **0.792** | 0.770 | 0.777
+
+## Other Examples to Consult
+
+- The `support1000` example in our Shared Google Drive
+- The [Project A demonstration project](https://thomaselove.github.io/432-2025/432_projectA_demo.html)
+- [432 Course Notes](https://thomaselove.github.io/432-notes): examples in Chapters 12-15 are especially relevant.
+- See <https://hbiostat.org/rmsc/> for Frank Harrell's Regression Modeling Strategies text
+
+## Session Information
+
+```{r}
+#| echo: true
+xfun::session_info()
+```
+
+
+
