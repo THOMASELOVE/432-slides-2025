@@ -413,18 +413,18 @@ plot(spearman2(ladder ~ log_gdp + social + life_exp + freedom +
 
 Variables sorted from highest to lowest adjusted $\rho^2$:
 
-- `log_gdp` (quantitative, so 1 df)
 - `social` (quantitative, so 1 df)
+- `log_gdp` (quantitative, so 1 df)
 - `life_exp` (quantitative, so 1 df)
 - `region4` (three category, so 3 df)
 - and the rest fall into lower tiers
 
 ## Non-Linear Terms We'll Consider
 
-Suppose we decide (a bit arbitrarily) to include the following non-linear terms in `fit5`:
+Suppose we decide (somewhat arbitrarily) to include the following non-linear terms in `fit5`:
 
-- a four-knot restricted cubic spline in `log_gdp`
 - a polynomial of degree 2 in `social`
+- a four-knot restricted cubic spline in `log_gdp`
 - an interaction (product term) between `life_exp` and `region4`
 
 really just to demonstrate methods for fitting and evaluating such things. We'll call this model `fit5` in what follows.
@@ -501,16 +501,16 @@ fit4_bestsubs <- ols_step_best_subset(fit4_lm, metric = "cp", max_order = 6)
 fit4_bestsubs
 ```
 
-## A briefer summary^[This table was hand-crafted by Dr. Love.]
+## A briefer summary^[This table was hand-crafted by Dr. Love.] {.smaller}
 
 Index | Variables | $C_p$ | AIC | $R^2$ | Adj. $R^2$
 :-----: | :----------: | ----: | ----: | ----: | ----: |
-(1) | social | 107.8 | 229 | .6057 | .6021
-(2) | (1) + freedom | 56.8 | 200 | .7035 | .6980
-(3) | (2) + life_exp | 21.8 | 173 | .7716 | .7652
-(4) | (3) + corruption | 14.8 | 167 | .7883 | .7802
-(5) | (4) + region4 | 9.1 | 161 | .8098 | .7967
-(6) | (5) + log_gdp | 7.6 | 159 | .8162 | .8017
+(1) | social | 109.0 | 239.4 | 0.646 | 0.642
+(2) | (1) + freedom | 58.4 | 210.5 | 0.732 | 0.727
+(3) | (2) + life_exp | 26.7 | 187.0 | 0.788 | 0.782
+(4) | (3) + corruption | 15.8 | 177.4 | 0.809 | 0.802
+(5) | (4) + region4 and log_gdp, - life_exp | 9.9 | 171.4 | 0.829 | 0.817
+(6) | (5) + log_gdp and pos_affect, - region4 | 7.4 | 168.9 | 0.830 | 0.820
 
 - Which of these seem most promising?
 
@@ -519,7 +519,7 @@ Index | Variables | $C_p$ | AIC | $R^2$ | Adj. $R^2$
 - Our `fit1` will use the "best subsets" suggestion using 3 predictors: `social`, `life_exp` and `freedom`
     - Why?
     - big drop in $C_p$ (and AIC) from two predictors to three, 
-    - $R^2$ = 0.7652, adjusted $R^2$ is 0.7498 so not much separation there
+    - $R^2$ = 0.7878, adjusted $R^2$ is 0.7818 so not much separation there
 
 ## `fit1` model fitting
 
@@ -546,24 +546,24 @@ fit1_ols$coefficients
 
 ## `fit3`: 5 predictors + non-linearity
 
-- Our `fit3` will start with the "best subsets" suggestion using 5 predictors: `social`, `life_exp`, `freedom`, `corruption` and `region4`
-    - pretty low $C_p$ (and AIC) among these options, $R^2$ = 0.8098, adjusted $R^2$ is 0.7776
-    - For demonstration purposes, we'll also add an interaction between the main effect of `life_exp` and `region4` and a restricted cubic spline in 3 knots for `social` and also for `life_exp`, and call that model `fit3`
+- Our `fit3` will start with the "best subsets" suggestion using 5 predictors: `social`, `log_gdp`, `freedom`, `corruption` and `region4`
+    - pretty low $C_p$ (and AIC) among these options, $R^2$ = 0.8287, adjusted $R^2$ is 0.8170
+    - For demonstration purposes, we'll also add an interaction between the main effect of `log_gdp` and `region4` and a restricted cubic spline in 3 knots for `social` and also for `log_gdp`, and call that model `fit3`
 
 ## `fit3` model fitting
 
 ```{r}
 #| echo: true
 
-fit3_lm <- lm(ladder ~ rcs(social,3) + rcs(life_exp, 3) + region4 + 
-                life_exp %ia% region4 + freedom + corruption, 
+fit3_lm <- lm(ladder ~ rcs(social,3) + rcs(log_gdp, 3) + region4 + 
+                log_gdp %ia% region4 + freedom + corruption, 
               data = happy_si_train)
 
-# %ia% for interaction using only main effect of life_exp
+# %ia% for interaction using only main effect of log_gdp
 # already set up the datadist for happy_si_train
 
-fit3_ols <- ols(ladder ~ rcs(social,3) + rcs(life_exp, 3) + region4 + 
-                life_exp %ia% region4 + freedom + corruption,
+fit3_ols <- ols(ladder ~ rcs(social,3) + rcs(log_gdp, 3) + region4 + 
+                log_gdp %ia% region4 + freedom + corruption,
     data = happy_si_train, x = TRUE, y = TRUE)
 ```
 
@@ -582,7 +582,7 @@ Model | `ladder` is predicted using... | Vars | NLT | df
 :----: | :------------------------------------------------------- | ---: | ---: | ---:
 fit1 | social + life_exp + freedom | 3 | 0 | 3
 fit2 | log_gdp * ftemp_c | 2 | 1 | 3
-fit3 | rcs(social,3) + rcs(life_exp, 3) + region4 + life_exp %ia% region4 + freedom + corruption | 5 | 3 | 12
+fit3 | rcs(social,3) + rcs(log_gdp, 3) + region4 + log_gdp %ia% region4 + freedom + corruption | 5 | 3 | 12
 fit4 | log_gdp + social + life_exp + freedom + generosity + corruption + pos_affect + neg_affect + ftemp_c + fpop_dens + region4 | 11 | 0 | 14
 fit5 | rcs(log_gdp,4) + poly(social,2) + life_exp * region4 + freedom + generosity + corruption + pos_affect + neg_affect + ftemp_c + fpop_dens | 11 | 3 | 20
 
@@ -602,17 +602,17 @@ model_parameters(fit1_ols, ci = 0.90, pretty_names = FALSE, digits = 3)
 
 Effect of `freedom` in `fit1`?
 
-- If we have two countries with the same values of `social` and `life_exp`, but country A's `freedom` score is one point higher than country B, our model `fit1` predicts that, on average, the `ladder` score for country A will be 2.762 (90% CI: 1.982, 3.541) points higher than country B.
+- If we have two countries with the same values of `social` and `life_exp`, but country A's `freedom` score is one point higher than country B, our model `fit1` predicts that, on average, the `ladder` score for country A will be 2.983 (90% CI: 2.194, 3.772) points higher than country B.
 
 ## Interpreting `fit1` coefficients
 
-- If we have two countries with the same values of `life_exp` and `freedom`, but country A's `social` score is one point higher than country B, our model `fit1` predicts that, on average, the `ladder` score for country A will be 3.615 (90% CI: 2.699, 4.530) points higher than country B.
+- If we have two countries with the same values of `life_exp` and `freedom`, but country A's `social` score is one point higher than country B, our model `fit1` predicts that, on average, the `ladder` score for country A will be 3.700 (90% CI: 2.706, 4.694) points higher than country B.
 
-- If we have two countries with the same values of `social` and `freedom`, but country A's `life_exp` score is one point higher than country B, our model `fit1` predicts that, on average, the `ladder` score for country A will be 0.072 (90% CI: 0.051, 0.093) points higher than country B.
+- If we have two countries with the same values of `social` and `freedom`, but country A's `life_exp` score is one point higher than country B, our model `fit1` predicts that, on average, the `ladder` score for country A will be 0.073 (90% CI: 0.050, 0.096) points higher than country B.
 
 ## `fit1` meaning of the intercept
 
-- If we have a country with 0 values in `social`, `life_exp` and `freedom`, our predicted `ladder` score, according to `fit1`, will be -4.140 (90% CI: -5.214, -3.065).
+- If we have a country with 0 values in `social`, `life_exp` and `freedom`, our predicted `ladder` score, according to `fit1`, will be -4.409 (90% CI: -5.542, -3.276).
 - Are there problems here?
 
 ```{r}
@@ -698,47 +698,47 @@ model_parameters(fit2_ols, ci = 0.90, pretty_names = FALSE) |>
 ## Can we interpret the `fit2` interaction?
 
 $$
-\hat{\mbox{ladder}} = -1.919 + 0.788 \mbox{ log_gdp} - \\
-0.958 \mbox{ ftemp_c = warm} - 0.104 \mbox{ log_gdp } \times \mbox{ ftemp_c = warm}
+\hat{\mbox{ladder}} = -5.283 + 1.107 \mbox{ log_gdp} + \\
+4.445 \mbox{ (ftemp_c = warm)} - 0.425 \mbox{ log_gdp } \times \mbox{ (ftemp_c = warm)}
 $$
 
 Suppose countries A and B each have "cool" temperatures, but B's `log_gdp` is one unit larger than A's. Our predicted `ladder` from `fit2`:
 
-- for Country A: -1.919 + 0.788 (log_gdp for A)
-- for Country B: -1.919 + 0.788 (log_gdp for A + 1)
-- for Country B - Country A difference = 0.788
+- for Country A: -5.283 + 1.107 (log_gdp for A)
+- for Country B: -5.283 + 1.107 (log_gdp for A + 1)
+- for Country B - Country A difference = 1.107
 
 ## Interpret the `fit2` interaction term
 
 $$
-\hat{\mbox{ladder}} = -1.919 + 0.788 \mbox{ log_gdp} - \\
-0.958 \mbox{ ftemp_c = warm} - 0.104 \mbox{ log_gdp } \times \mbox{ ftemp_c = warm}
+\hat{\mbox{ladder}} = -5.283 + 1.107 \mbox{ log_gdp} + \\
+4.445 \mbox{ (ftemp_c = warm)} - 0.425 \mbox{ log_gdp } \times \mbox{ (ftemp_c = warm)}
 $$
 
 Suppose countries C and D each have "warm" temperatures, but D's `log_gdp` is one unit larger than C's. From `fit2`:
 
-- C: (-1.919 - 0.958) + (0.788 - 0.104) (log_gdp for C)
-- D: (-1.919 - 0.958) + (0.788 - 0.104) (log_gdp for C + 1)
-- D - C difference = 0.788 - 0.104 = 0.644
+- C: (-5.283 + 4.445) + (1.107 - 0.425) (log_gdp for C)
+- D: (-5.283 + 4.445) + (1.107 - 0.425) (log_gdp for C + 1)
+- D - C difference = (1.107 - 0.425) = 0.682
 
 ## Interpreting the `fit2` interaction {.smaller}
 
 $$
-\hat{\mbox{ladder}} = -1.919 + 0.788 \mbox{ log_gdp} - \\
-0.958 \mbox{ ftemp_c = warm} - 0.104 \mbox{ log_gdp } \times \mbox{ ftemp_c = warm}
+\hat{\mbox{ladder}} = -5.283 + 1.107 \mbox{ log_gdp} + \\
+4.445 \mbox{ (ftemp_c = warm)} - 0.425 \mbox{ log_gdp } \times \mbox{ (ftemp_c = warm)}
 $$
 
--- | log_gdp | ftemp_c | Predicted ladder from `fit1`
+-- | log_gdp | ftemp_c | Predicted ladder from `fit2`
 ------: | ------: | ------: | ------------------------------------------------
-A | 9 | cool | -1.919 + 0.788 (9) - 0.958 (0) - 0.104 (9)(0) = 5.173
-B | 10 | cool | -1.919 + 0.788 (10) - 0.958 (0) - 0.104 (10)(0) = 5.961 
-C | 9 | warm | -1.919 + 0.788 (9) - 0.958 (1) - 0.104 (9)(1) = 3.279
-D | 10 | warm | -1.919 + 0.788 (10) - 0.958 (1) - 0.104 (10)(1) = 3.963
+A | 9 | cool | -5.283 + 1.107 (9) + 4.445 (0) - 0.425 (9)(0) = 4.680
+B | 10 | cool | -5.283 + 1.107 (10) + 4.445 (0) - 0.425 (10)(0) = 5.787 
+C | 9 | warm | -5.283 + 1.107 (9) + 4.445 (1) - 0.425 (9)(1) = 5.300
+D | 10 | warm | -5.283 + 1.107 (10) + 4.445 (1) - 0.425 (10)(1) = 5.982
 
-- B - A = 5.961 - 5.173 = 0.788 compares 10 vs. 9 when temp = cool
-- D - C = 3.963 - 3.279 = 0.684 compares 10 vs. 9 when temp = warm
-- A - C = 5.173 - 3.279 = 1.894 compares cool vs. warm when log_gdp = 9
-- B - D = 5.961 - 3.963 = 1.998 compares cool vs. warm when log_gdp = 10
+- B - A = 5.787 - 4.680 = 1.107 compares 10 vs. 9 when temp = cool
+- D - C = 5.982 - 5.300 = 0.682 compares 10 vs. 9 when temp = warm
+- C - A = 5.300 - 4.680 = 0.620 compares warm vs. cool when log_gdp = 9
+- D - B = 5.982 - 5.787 = 0.195 compares warm vs. cool when log_gdp = 10
 
 ## Picturing the `fit2` Model
 
@@ -746,7 +746,7 @@ D | 10 | warm | -1.919 + 0.788 (10) - 0.958 (1) - 0.104 (10)(1) = 3.963
 #| echo: true
 #| output-location: slide
 
-new_dat <- tibble(log_gdp = c(9, 10, 9, 10), 
+new_dat <- tibble(log_gdp = c(8, 11, 8, 11), 
                   ftemp_c = c("cool", "cool", "warm", "warm"))
 
 fit2_aug <- augment(fit2_lm, newdata = new_dat)
@@ -948,7 +948,7 @@ Model | Predictors
 :----: | :----------------------------------------------------------
 `fit1` | `social`, `life_exp`, and `freedom` main effects
 `fit2` | `log_gdp`, `ftemp_c` and their interaction
-`fit3` | `social`, `life_exp`, `freedom`, `corruption`, `region4`, 2 splines and an interaction
+`fit3` | `social`, `log_gdp`, `freedom`, `corruption`, `region4`, 2 splines and an interaction
 `fit4` | main effects of all 11 predictors
 `fit5` | all 11 predictors plus a spline, a polynomial and an interaction
 
@@ -960,8 +960,8 @@ Model | Predictors
 anova(fit1_lm)
 ```
 
-- Total SS = 75.448+11.393+9.276+28.446 = 124.563
-- So `social` accounts for 75.448 / 124.563 = 60.57% of the variation in `ladder`
+- Total SS = 97.942 + 9.614 + 11.956 + 32.191 = 151.733
+- So `social` accounts for 97.942 / 151.733 = 64.57% of the variation in `ladder`
 
 ## Effect Sizes, by $\eta^2$
 
@@ -1005,10 +1005,9 @@ Model | Predictors
 :----: | :----------------------------------------------------------
 `fit1` | `social`, `life_exp`, and `freedom` main effects
 `fit2` | `log_gdp`, `ftemp_c` and their interaction
-`fit3` | `social`, `life_exp`, `freedom`, `corruption`, `region4`, 2 splines and an interaction
+`fit3` | `social`, `log_gdp`, `freedom`, `corruption`, `region4`, 2 splines and an interaction
 `fit4` | main effects of all 11 predictors
 `fit5` | all 11 predictors plus a spline, a polynomial and an interaction
-
 
 ## `anova` for `fit2`
 
@@ -1041,7 +1040,7 @@ Model | Predictors
 :----: | :----------------------------------------------------------
 `fit1` | `social`, `life_exp`, and `freedom` main effects
 `fit2` | `log_gdp`, `ftemp_c` and their interaction
-`fit3` | `social`, `life_exp`, `freedom`, `corruption`, `region4`, 2 splines and an interaction
+`fit3` | `social`, `log_gdp`, `freedom`, `corruption`, `region4`, 2 splines and an interaction
 `fit4` | main effects of all 11 predictors
 `fit5` | all 11 predictors plus a spline, a polynomial and an interaction
 
@@ -1075,7 +1074,7 @@ Model | Predictors
 :----: | :----------------------------------------------------------
 `fit1` | `social`, `life_exp`, and `freedom` main effects
 `fit2` | `log_gdp`, `ftemp_c` and their interaction
-`fit3` | `social`, `life_exp`, `freedom`, `corruption`, `region4`, 2 splines and an interaction
+`fit3` | `social`, `log_gdp`, `freedom`, `corruption`, `region4`, 2 splines and an interaction
 `fit4` | main effects of all 11 predictors
 `fit5` | all 11 predictors plus a spline, a polynomial and an interaction
 
@@ -1109,7 +1108,7 @@ Model | Predictors
 :----: | :----------------------------------------------------------
 `fit1` | `social`, `life_exp`, and `freedom` main effects
 `fit2` | `log_gdp`, `ftemp_c` and their interaction
-`fit3` | `social`, `life_exp`, `freedom`, `corruption`, `region4`, 2 splines and an interaction
+`fit3` | `social`, `log_gdp`, `freedom`, `corruption`, `region4`, 2 splines and an interaction
 `fit4` | main effects of all 11 predictors
 `fit5` | all 11 predictors plus a spline, a polynomial and an interaction
 
@@ -1144,7 +1143,7 @@ Model | `ladder` is predicted using... | df
 :----: | :------------------------------------------------------- | ---:
 fit1 | social + life_exp + freedom | 3
 fit2 | log_gdp * ftemp_c | 3
-fit3 | rcs(social,3) + rcs(life_exp, 3) + region4 + life_exp %ia% region4 + freedom + corruption | 12
+fit3 | rcs(social,3) + rcs(log_gdp, 3) + region4 + log_gdp %ia% region4 + freedom + corruption | 12
 fit4 | log_gdp + social + life_exp + freedom + generosity + corruption + pos_affect + neg_affect + ftemp_c + fpop_dens + region4 | 14
 fit5 | rcs(log_gdp,4) + poly(social,2) + life_exp * region4 + freedom + generosity + corruption + pos_affect + neg_affect + ftemp_c + fpop_dens | 20
 
@@ -2013,12 +2012,12 @@ model_parameters(fit2_imp_ests, ci = 0.90)
 
 fit3_imp_ests <- 
   mice(happy, m = 15, seed = 43218, print = FALSE) |>
-  with(lm(ladder ~ rcs(social,3) + rcs(life_exp, 3) + region4 + 
-            life_exp %ia% region4 + freedom + corruption)) |>
+  with(lm(ladder ~ rcs(social,3) + rcs(log_gdp, 3) + region4 + 
+            log_gdp %ia% region4 + freedom + corruption)) |>
   pool()
 ```
 
-## Across 15 imputations: `fit2` estimates
+## Across 15 imputations: `fit3` estimates
 
 ```{r}
 #| echo: true
@@ -2084,7 +2083,7 @@ Model | `ladder` is predicted using... | df
 :----: | :------------------------------------------------------- | ---:
 fit1 | social + life_exp + freedom | 3
 fit2 | log_gdp * ftemp_c | 3
-fit3 | rcs(social,3) + rcs(life_exp, 3) + region4 + life_exp %ia% region4 + freedom + corruption | 12
+fit3 | rcs(social,3) + rcs(log_gdp, 3) + region4 + log_gdp %ia% region4 + freedom + corruption | 12
 fit4 | log_gdp + social + life_exp + freedom + generosity + corruption + pos_affect + neg_affect + ftemp_c + fpop_dens + region4 | 14
 fit5 | rcs(log_gdp,4) + poly(social,2) + life_exp * region4 + freedom + generosity + corruption + pos_affect + neg_affect + ftemp_c + fpop_dens | 20
 
@@ -2264,7 +2263,7 @@ set.seed(43224)
 dd <- datadist(happy)
 options(datadist = "dd")
 
-fit3_imps15 <- aregImpute(~ ladder + social + life_exp + region4 + 
+fit3_imps15 <- aregImpute(~ ladder + social + log_gdp + region4 + 
                             freedom + corruption,
                           nk = c(0, 3), tlinear = FALSE, data = happy, 
                           B = 10, n.impute = 15, pr = FALSE)
@@ -2286,8 +2285,8 @@ fit3_imps15
 #| cache: true
 
 fit3_imp <- 
-  fit.mult.impute(ladder ~ rcs(social,3) + rcs(life_exp, 3) + region4 + 
-                    life_exp %ia% region4 + freedom + corruption,
+  fit.mult.impute(ladder ~ rcs(social,3) + rcs(log_gdp, 3) + region4 + 
+                    log_gdp %ia% region4 + freedom + corruption,
                   fitter = ols, xtrans = fit3_imps15, data = happy,
                   fitargs=list(x = TRUE, y = TRUE))
 ```
@@ -2524,12 +2523,12 @@ Training sample: *n* = 110 countries after single imputation.
 Model | `fit1` | `fit2` | `fit3` | `fit4` | `fit5`
 ---------------- | -----: | -----: | -----: | -----: | -----:
 model df | 3 | 3 | 12 | 14 | 20
-raw R-sq | 0.788 | 0.631 | 0.829 | 0.843 | **0.847**
-adj. R-sq | 0.782 | 0.620 | 0.808 | **0.820** | 0.813
-RMSE | 0.541 | 0.713 | 0.486 | 0.465 | **0.459**
-MAE | 0.412 | 0.543 | 0.371 | 0.344 | **0.342**
-AIC | 187.0 | 247.9 | 181.4 | **175.6** | 184.8
-BIC | 200.5 | 261.4 | 219.2 | 218.8 | **196.4**
+raw R-sq | 0.788 | 0.631 | 0.835 | 0.843 | **0.847**
+adj. R-sq | 0.782 | 0.620 | 0.815 | **0.820** | 0.813
+RMSE | 0.541 | 0.713 | 0.477 | 0.465 | **0.459**
+MAE | 0.412 | 0.543 | 0.360 | 0.344 | **0.342**
+AIC | 187.0 | 247.9 | 177.3 | **175.6** | 184.8
+BIC | **200.5** | 261.4 | 215.1 | 218.8 | 244.2
 
 ## Bootstrapped Calibration Summaries {.smaller}
 
@@ -2537,9 +2536,9 @@ Training sample: *n* = 110 countries after single imputation.
 
 Model | `fit1` | `fit2` | `fit3` | `fit4` | `fit5`
 ---------------- | -----: | -----: | -----: | -----: | -----:
-Mean absolute error | 0.075 | **0.032** | 0.055 | 0.057 | 0.049
-Mean squared error | 0.00884 | **0.00201** | 0.00435 | 0.00508 | 0.00434 
-90th quantile abs error | 0.146 | **0.058** | 0.101 | 0.103 | 0.122
+Mean absolute error | 0.075 | **0.032** | 0.041 | 0.057 | 0.049
+Mean squared error | 0.00884 | **0.00201** | 0.00256 | 0.00508 | 0.00434 
+90th quantile abs error | 0.146 | **0.058** | 0.090 | 0.103 | 0.122
 
 - Model `fit2` looks like it's the best calibrated of these.
 - All of the models have at least some issues with regression assumptions.
@@ -2550,9 +2549,9 @@ These aren't cross-validated or bootstrap validated. These are just the raw $R^2
 
 Model | `fit1` | `fit2` | `fit3` | `fit4` | `fit5`
 ---------------- | -----: | -----: | -----: | -----: | -----:
-Single imp | 0.788 | 0.631 | 0.829 | 0.843 | **0.847** 
+Single imp | 0.788 | 0.631 | 0.835 | 0.843 | **0.847**
 MI with mice | 0.775 | 0.569 | 0.813 | 0.830 | **0.837**
-MI with areg | 0.782 | 0.586 | 0.823 | 0.837 | **0.841**
+MI with areg | 0.782 | 0.586 | 0.825 | 0.837 | **0.841**
 
 ## Bootstrap-Validated Summaries
 
@@ -2560,15 +2559,15 @@ MI with areg | 0.782 | 0.586 | 0.823 | 0.837 | **0.841**
 
 Model | `fit1` | `fit2` | `fit3` | `fit4` | `fit5`
 ---------------- | -----: | -----: | -----: | -----: | -----:
-R-sq | 0.776 | 0.608 | 0.786 | **0.794** | 0.768
-MSE | 0.316 | 0.552 | 0.299 | **0.291** | 0.322
+R-sq | 0.776 | 0.608 | 0.787 | **0.794** | 0.768
+MSE | 0.316 | 0.552 | 0.296 | **0.291** | 0.322
 
 - After multiple imputation with `aregImpute()`:
 
 Model | `fit1` | `fit2` | `fit3` | `fit4` | `fit5`
 ---------------- | -----: | -----: | -----: | -----: | -----:
-R-sq | 0.774 | 0.506 | 0.783 | **0.792** | 0.776
-MSE | 0.298 | 0.636 | 0.287 | **0.271** | 0.294
+R-sq | 0.774 | 0.506 | **0.7923** | 0.7916 | 0.776
+MSE | 0.298 | 0.636 | 0.275 | **0.271** | 0.294
 
 
 ## Test Sample Error Summaries
@@ -2577,10 +2576,10 @@ Test sample: *n* = 28 countries after single imputation.
 
 Model | `fit1` | `fit2` | `fit3` | `fit4` | `fit5`
 ---------------- | -----: | -----: | -----: | -----: | -----:
-MAPE | 0.388 | 0.812 | 0.388 | 0.388 | **0.370**
-max APE | 1.122 | 3.518 | **0.896** | 1.003 | 0.985
-RMSPE | 0.509 | 1.235 | **0.458** | 0.475 | 0.469
-R-sq (val.) | 0.744 | 0.142 | **0.792** | 0.770 | 0.777
+MAPE | 0.388 | 0.812 | 0.423 | 0.388 | **0.370**
+max APE | 1.122 | 3.518 | 1.580 | 1.003 | **0.985**
+RMSPE | 0.509 | 1.235 | 0.549 | 0.475 | **0.469**
+R-sq (val.) | 0.744 | 0.142 | 0.727 | 0.770 | **0.777**
 
 ## Other Examples to Consult
 
