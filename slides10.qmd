@@ -1683,11 +1683,11 @@ usadat
 
 ## USA `fit1` Predictions (90% PI)
 
-- Using the `lm()` fit, and a prediction interval...
+- Using the `lm()` fit, and a prediction interval for one country...
 
 ```{r}
 #| echo: true
-predict(fit1_lm, newdata = usadat, interval = "confidence", level = 0.90)
+predict(fit1_lm, newdata = usadat, interval = "prediction", level = 0.90)
 ```
 
 - Using the `ols()` fit:
@@ -1705,7 +1705,7 @@ predict(fit1_ols, newdata = usadat,
 
 ```{r}
 #| echo: true
-predict(fit1_lm, newdata = usadat, interval = "confidence", level = 0.90)
+predict(fit1_lm, newdata = usadat, interval = "prediction", level = 0.90)
 ```
 
 - Using the `ols()` fit:
@@ -1719,15 +1719,15 @@ predict(fit1_ols, newdata = usadat,
 
 ## Predictions for USA by each fit
 
-- Recall actual USA `ladder` is 6.52
+- Recall actual USA `ladder` is 6.52.
 
 ```{r}
 #| echo: true
-predict(fit1_lm, newdata = usadat, interval = "confidence", level = 0.90)
-predict(fit2_lm, newdata = usadat, interval = "confidence", level = 0.90)
-predict(fit3_lm, newdata = usadat, interval = "confidence", level = 0.90)
-predict(fit4_lm, newdata = usadat, interval = "confidence", level = 0.90)
-predict(fit5_lm, newdata = usadat, interval = "confidence", level = 0.90)
+predict(fit1_lm, newdata = usadat, interval = "prediction", level = 0.90)
+predict(fit2_lm, newdata = usadat, interval = "prediction", level = 0.90)
+predict(fit3_lm, newdata = usadat, interval = "prediction", level = 0.90)
+predict(fit4_lm, newdata = usadat, interval = "prediction", level = 0.90)
+predict(fit5_lm, newdata = usadat, interval = "prediction", level = 0.90)
 ```
 
 
