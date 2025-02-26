@@ -30,7 +30,7 @@ format:
 #| message: false
 knitr::opts_chunk$set(comment = NA)
 
-library(janitor); 
+library(janitor) 
 library(conflicted)
 library(gt)
 library(here)
@@ -315,6 +315,16 @@ ggsurvplot(km_aml, data = aml_432,
    )
 ```
 
+## Save our `aml_432` data 
+
+```{r}
+write_rds(aml_432, here("c15/data/aml_432.Rds"))
+```
+
+I use `write_rds()` to do this, rather than other options. The main reason I prefer it is that it does not compress the file by default, and space is generally cheaper than time. It's part of the **readr** package in the core tidyverse.
+
+- Details at <https://readr.tidyverse.org/reference/read_rds.html>
+- Posted the `aml_432.Rds` file to [our 432-data page](https://github.com/THOMASELOVE/432-data).
 
 ## Where We Are So Far
 

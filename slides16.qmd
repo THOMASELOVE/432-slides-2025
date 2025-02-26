@@ -1,0 +1,337 @@
+---
+title: "432 Class 16"
+author: Thomas E. Love, Ph.D.
+date: "2025-03-06"
+format:
+  revealjs: 
+    theme: dark
+    embed-resources: true
+    self-contained: true
+    slide-number: true
+    footnotes-hover: true
+    preview-links: auto
+    date-format: iso
+    logo: 432-2025-pic.png
+    footer: "432 Class 16 | 2025-03-06 | <https://thomaselove.github.io/432-2025/>"
+---
+
+## Today's Agenda
+
+- Testing the difference between two survival curves
+    - log rank tests (Mantel-Haenszel)
+    - Peto-Peto modification of the Gehan-Wilcoxon test
+- Customizing a Kaplan-Meier plot
+    - Plotting Cumulative Event Rates and Cumulative Hazards
+- A larger example: Colon Cancer Trial
+    - Survival Objects and Kaplan-Meier Estimates
+    - Fitting a simple Cox Regression model
+
+## Today's R Setup
+
+```{r}
+#| echo: true
+#| message: false
+knitr::opts_chunk$set(comment = NA)
+
+library(janitor)
+library(naniar)
+library(conflicted)
+library(here)
+library(survival)  
+library(survminer) 
+library(easystats)
+library(tidyverse)
+
+theme_set(theme_bw()) 
+conflicts_prefer(dplyr::filter)
+```
+
+# Our Original Example (from Class 15)
+
+## The `aml_432` data
+
+The `aml` data provided in the **survival** package describe survival times (in months) for 23 subjects with acute myelogenous leukemia. 
+
+Question: Should the standard course of chemotherapy be extended (maintained) for additional cycles or not?
+
+```{r}
+#| echo: true
+aml_432 <- survival::aml |> tibble() |>
+  rename(maintain = x, censored = status, months = time) |>
+  arrange(desc(months)) |>
+  mutate(subject = as.character(row_number()),
+         death = 1 - censored,
+         maintain = 
+           fct_recode(maintain, "Main" = "Maintained", 
+                      "No" = "Nonmaintained")) |>
+  relocate(subject)
+```
+
+## The `aml_432` codebook
+
+`aml_432` | Description 
+:---------: | :--------------------------------------- 
+`subject` | subject identifying code
+`months` | known months of survival in follow-up period
+`censored` | 1 if subject's follow-up was censored, else 0
+`maintain` | Chemotherapy was Maintained (Main or No)
+`death` | 1-`censored`, so 1 if died, 0 if censored.
+
+## Survival Object and K-M Estimator by Maintenance Group
+
+```{r}
+#| echo: true
+surv_aml <- Surv(time = aml_432$months, event = aml_432$death)
+
+km_aml_grp <- survfit(surv_aml ~ aml_432$maintain)
+print(km_aml_grp, print.rmean = TRUE)
+```
+
+## Kaplan-Meier Plot, by Group
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+ggsurvplot(km_aml_grp, data = aml_432,
+           ggtheme = theme_bw(), palette = "lancet",
+           conf.int = TRUE,
+           xlab = "Time in months",
+           break.time.by = 12,
+           risk.table = TRUE,
+           risk.table.height = 0.25, 
+           risk.table.col = "strata",
+           pval = TRUE)
+```
+
+## Testing the difference between 2 survival curves
+
+To obtain a significance test comparing these two survival curves, we turn to a log rank test, which tests the null hypothesis $H_0: S_1(t) = S_2(t)$ for all $t$ where the two exposures have survival functions $S_1(t)$ and $S_2(t)$.
+
+```{r}
+#| echo: true
+survdiff(surv_aml ~ aml_432$maintain)
+```
+
+## Alternative log rank tests
+
+An alternative is the *Peto and Peto modification of the Gehan-Wilcoxon test*, which results from adding `rho=1` to the `survdiff` function (`rho=0`, the default, yields the log rank test.)
+
+```{r}
+#| echo: true
+survdiff(surv_aml ~ aml_432$maintain, rho = 1)
+```
+
+## Alternative log rank tests
+
+- As compared to the log rank test, this Peto-Peto modification (and others using `rho > 0`) give greater weight to the left hand (earlier) side of the survival curves. 
+- To obtain chi-square tests that give greater weight to the right hand (later) side of the survival curves than the log rank test, use `rho < 0`.
+
+The log rank test generalizes to permit survival comparisons across more than two groups.
+
+## A Highly Customized K-M Plot
+
+```{r}
+#| echo: true
+#| output-location: slide
+ggsurvplot(km_aml_grp,              
+           data = aml_432, 
+           palette = c("red", "blue"),
+           risk.table = TRUE,      
+           pval = TRUE,           
+           conf.int = TRUE,       
+           xlab = "Time in months", 
+           break.time.by = 6,     
+           ggtheme = theme_bw(),
+           risk.table.y.text.col = T,
+           risk.table.height = 0.25, 
+           risk.table.y.text = FALSE,
+           ncensor.plot = TRUE,
+           ncensor.plot.title = "Censoring counts",
+           ncensor.plot.height = 0.25,
+           conf.int.style = "step",
+           surv.median.line = "hv")
+```
+
+## Customizing the K-M Plot Further
+
+See <https://rpkgs.datanovia.com/survminer/> or <https://github.com/kassambara/survminer/> for many more options.
+
+Also, consider [this YouTube Video from Frank Harrell](https://www.youtube.com/watch?v=EoIB_Obddrk) entitled "[Survival Curves: Showing More by Showing Less](https://www.youtube.com/watch?v=EoIB_Obddrk)" which highlights the value of interactive approaches.
+
+# A Larger Example
+
+## Colon Cancer Trial
+
+The `colon` data set from the **survival** package shows data from one of the first successful trials of adjuvant chemotherapy for colon cancer. While the data includes two records per person, one for recurrence and one for death, we've filtered to look only at recurrence.
+
+```{r}
+#| echo: true
+col_432 <- tibble(survival::colon) |>
+  filter(etype == 1) |>
+  select(id, rx, time, status, age, node4, surg, extent) |>
+  mutate(extent = factor(extent), id = as.character(id))
+
+dim(col_432)
+col_432 |> n_miss()
+```
+
+## Variables we will use today
+
+Variable | Description
+:-------: | :---------------------------------------------------
+`id` | subject identifying code
+`rx` | Treatment, either Obs(ervation), Lev(amisole) or Lev(amisole)+5-FU
+`time` | days until recurrence
+`status` | censoring status (1 = censored, 0 = recurrence)
+
+Levamisole is a low-toxicity compound previously used to treat worm infestations in animals; 5-FU is a moderately toxic (as these things go) chemotherapy agent. 
+
+## Variables we won't use today
+
+Variable | Description
+:-------: | :---------------------------------------------------
+`age` | age in years
+`node4` | 1 if more than 4 positive lymph nodes, else 0
+`surg` | time from surgery to registration (0=short, 1=long)
+`extent` | Extent of local spread (1=submucosa, 2=muscle, 3=serosa, 4=contiguous structures)
+
+- The study is originally described in [Laurie (1989)](https://pubmed.ncbi.nlm.nih.gov/2778478/). The main report is found in [Moertel (1990)](https://pubmed.ncbi.nlm.nih.gov/2300087/). 
+
+## `col_432` Survival object, and data
+
+Create Survival Object, `S`
+
+```{r}
+#| echo: true
+col_432$S <- Surv(time = col_432$time, event = (col_432$status == 0))
+
+col_432
+```
+
+## Kaplan-Meier Survival Estimates
+
+Days of Survival, by Treatment Group
+
+```{r}
+#| echo: true
+
+km_col_rx <- survfit(col_432$S ~ col_432$rx)
+
+print(km_col_rx, print.rmean = TRUE)
+```
+
+## Kaplan-Meier Plot, by Treatment
+
+- There is a problem with this plot. 
+- See if you can spot it (on the next slide.)
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+ggsurvplot(km_col_rx, data = col_432,
+           ggtheme = theme_bw(), palette = "lancet",
+           conf.int = TRUE,
+           fun = "pct", # plots survival probability as percentage
+           xlab = "Time in days",
+           break.time.by = 365,
+           risk.table = TRUE,
+           risk.table.height = 0.25, 
+           risk.table.col = "strata",
+           risk.table.y.text = FALSE,
+           risk.table.y.text.col = TRUE,
+           pval = TRUE)
+```
+
+## Comparing three survival curves
+
+```{r}
+#| echo: true
+survdiff(col_432$S ~ col_432$rx)
+```
+
+This is the `rho = 0` result: the Mantel-Haenszel test.
+
+## Emphasizing left-hand-side of curves
+
+```{r}
+#| echo: true
+survdiff(col_432$S ~ col_432$rx, rho = 1)
+```
+
+This is the `rho = 1` result: the Peto and Peto modification of the Gehan-Wilcoxon test.
+
+## Emphasizing the right-hand-side
+
+```{r}
+#| echo: true
+survdiff(col_432$S ~ col_432$rx, rho = -1)
+```
+
+## Plotting the Cumulative Event Rate
+
+Add `fun = "event"` to the plot...
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+ggsurvplot(km_col_rx, 
+           data = col_432, 
+           fun = "event",
+           ggtheme = theme_bw(), 
+           palette = "lancet",
+           xlab = "Time in days",
+           break.time.by = 365,
+           conf.int = TRUE)
+```
+
+## Cumulative Hazard Function
+
+Add `fun = "cumhaz"` to the plot (f(y) = -log(y))
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+ggsurvplot(km_col_rx, 
+           data = col_432, 
+           fun = "cumhaz",
+           ggtheme = theme_bw(), 
+           palette = "lancet",
+           xlab = "Time in days",
+           break.time.by = 365,
+           conf.int = TRUE)
+```
+
+## Cox Regression Model
+
+```{r}
+#| echo: true
+
+fit <- coxph( Surv(time, status == 0) ~ rx, data = col_432)
+fit
+```
+
+## Forest Plot for Cox model
+
+```{r}
+#| echo: true
+
+ggforest(fit, data = col_432)
+```
+
+## Cox Models
+
+Coming in Classes 22 and 23...
+
+### Save our tibble to an R data set
+
+```{r}
+#| echo: true
+
+write_rds(col_432, here("c16/data/col_432.Rds"))
+```
+
+I've placed these data on [our 432 data page](https://github.com/THOMASELOVE/432-data).
