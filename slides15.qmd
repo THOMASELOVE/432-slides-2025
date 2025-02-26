@@ -1,0 +1,381 @@
+---
+title: "432 Class 15"
+author: Thomas E. Love, Ph.D.
+date: "2025-03-04"
+format:
+  revealjs: 
+    theme: dark
+    embed-resources: true
+    self-contained: true
+    slide-number: true
+    footnotes-hover: true
+    preview-links: auto
+    date-format: iso
+    logo: 432-2025-pic.png
+    footer: "432 Class 15 | 2025-03-04 | <https://thomaselove.github.io/432-2025/>"
+---
+
+## Today's Agenda
+
+- Data which describe time to an event
+    - The Survival Function, S(t)
+    - Kaplan-Meier Estimation of the Survival Function
+    - Creating Survival Objects in R
+    - Drawing Survival Curves with **survminer**
+
+## Today's R Setup
+
+```{r}
+#| echo: true
+#| message: false
+knitr::opts_chunk$set(comment = NA)
+
+library(janitor); 
+library(conflicted)
+library(gt)
+library(here)
+library(mosaic)
+library(survival)  ## new today
+library(survminer) ## new today
+library(easystats)
+library(tidyverse)
+
+theme_set(theme_bw()) 
+conflicts_prefer(base::max, dplyr::filter)
+```
+
+# Introduction to Time-to-Event Data
+
+## Working with Time to Event Data
+
+In many medical studies, the main outcome variable is the time to the occurrence of a particular event. 
+
+- In a randomized controlled trial of cancer, for instance, surgery, radiation, and chemotherapy might be compared with respect to time from randomization and the start of therapy until death. 
+
+## Time-to-Event data
+
+- In this case, the event of interest is the death of a patient, but in other situations it might be remission from a disease, relief from symptoms or the recurrence of a particular condition. 
+
+- Such observations are generally referred to by the generic term **survival data** even when the endpoint or event being considered is not death but something else. 
+
+## A First Example: Survival with AML
+
+The `aml` data provided in the **survival** package describe survival times (in months) for 23 subjects with acute myelogenous leukemia. 
+
+Question: Should the standard course of chemotherapy be extended (maintained) for additional cycles or not?
+
+- The study followed 11 subjects who received this maintenance chemotherapy, and 12 who did not, and tracked how long they survived (in months).
+- But the problem was that 18 of the subjects were still alive at the time of their last follow-up.
+
+## Data Ingest
+
+I ingested the `aml` data from the **survival** package into a new tibble that I called `aml_432`, with 23 rows and 4 columns...
+
+```{r}
+#| echo: true
+aml_432 <- survival::aml |> tibble() |>
+  rename(maintain = x, censored = status, months = time) |>
+  arrange(desc(months)) |>
+  mutate(subject = as.character(row_number())) |>
+  relocate(subject)
+
+head(aml_432)
+```
+
+## The `aml_432` codebook
+
+`aml_432` | Description | *aml*
+:---------: | :--------------------------------------- | :-------:
+`subject` | subject identifying code | -- 
+`months` | known months of survival in follow-up period | *time*
+`censored` | 1 if subject's follow-up time was censored, else 0 | *status*
+`maintain` | Chemotherapy was Maintained or "Nonmaintained" | *x*
+
+- If `censored` is 0, this means we know when the person died.
+
+## What's in a Time-to-Event Study?
+
+Survival analysis is concerned with prospective studies. We start with a cohort of patients and follow them forwards in time to determine some clinical outcome. 
+
+- Follow-up continues until either some event of interest occurs, the study ends, or further observation becomes impossible. 
+
+## Time-to-Event (Survival) Outcomes
+
+The outcomes in a survival analysis consist of the patient's **fate** and **length of follow-up** at the end of the study. 
+
+- For some patients, the outcome of interest may not occur during follow-up. 
+- For such patients, whose follow-up time is *censored*, we know only that this event did not occur while the patient was being followed. We do not know whether or not it will occur at some later time.
+
+## Two subjects from `aml_432`
+
+```{r}
+#| echo: true
+aml_432 |> filter(subject %in% c(1, 8)) |> gt() |> 
+  tab_options(table.font.size = 24) |> 
+  opt_stylize(style = 2, color = "blue")
+```
+
+- Subject 1 was part of the Maintained group, and survived 161 months, at which point they died.
+- Subject 8 was in the Maintained group, and survived at least 31 months, but was then censored^[perhaps because the study ended, or they were lost to the investigators].
+
+## Two more subjects from `aml_432`
+
+```{r}
+#| echo: true
+aml_432 |> filter(subject %in% c(15, 22)) |> gt() |> 
+  tab_options(table.font.size = 24) |> 
+  opt_stylize(style = 2, color = "blue")
+```
+
+- Subject 15 was in the Nonmaintained group, and survived 16 months, and then died.
+- Subject 22 was in the Nonmaintained group, and survived at least 5 months, but was then censored (so they were not followed further.)
+
+## Problems with Time to Event Data
+
+The primary problems are *censoring* and *non-Normality*...
+
+1. At the completion of the study, some patients may not have reached the endpoint of interest (death, relapse, etc.). Consequently, the exact survival times are not known. 
+
+   + All that is known is that the survival times are greater than the amount of time the individual has been in the study. 
+   + The survival times of these individuals are said to be **censored** (precisely, they are right-censored).
+
+## Problems with Time to Event Data
+
+The primary problems are *censoring* and *non-Normality*...
+
+2. Survival data are not symmetrically distributed. They will often appear positively skewed, with a few people surviving a very long time compared with the majority; so assuming a normal distribution will not be reasonable.
+
+Next, we'll define some special functions to build models that address these concerns.
+
+## The Survival Function, $S(t)$
+
+The **survival function**, $S(t)$ (sometimes called the survivor function) is the probability that the survival time, $T$, is greater than or equal to a particular time, $t$.
+
+- $S(t)$ = proportion of people surviving to time $t$ or beyond
+
+## If there's no censoring, the survival function is easy to estimate
+
+When there is no censoring, this function is easily estimated.
+
+$$
+\hat{S}(t) = \frac{\# \mbox{ of subjects with survival times } \geq t}{n}
+$$
+
+but this won't work if there is censoring.
+
+Even with censoring, the Kaplan-Meier approach essentially estimates the survival function by the number of patients alive at time $t$ divided by the total number of study subjects remaining at that time. 
+
+## Kaplan-Meier Estimator
+
+The Kaplan-Meier estimator first orders the (unique) survival times from smallest to largest, then estimates the survival function at each unique survival time.
+
+- The survival function at the second death time, $t_{(2)}$ is equal to the estimated probability of not dying at time $t_{(2)}$ conditional on the individual being still at risk at time $t_{(2)}$.
+
+## Kaplan-Meier Estimator
+
+1. Order the survival times from smallest to largest, where $t_{(j)}$ is the $j$th largest unique survival time, so we have...
+
+$$
+t_{(1)} \leq t_{(2)} \leq t_{(3)} \leq ... t_{(n)}
+$$
+
+## Kaplan-Meier Estimator
+
+2. The Kaplan-Meier estimate of the survival function is 
+
+$$
+\hat{S}(t) = \prod_{j: t_{(j)} \leq t} (1 - \frac{d_j}{r_j})
+$$
+
+where $r_j$ is the number of people at risk just before $t_{(j)}$, including those censored at time $t_{(j)}$, and $d_j$ is the number of people who experience the event at time $t_{(j)}$.
+
+## Creating a Survival Object in R
+
+The `Surv()` function, part of the `survival` package in R, will create a **survival object** from two arguments:
+
+1. `time` = follow-up time
+2. `event` = a status indicator, where
+    + event = 1 or TRUE means the event was **observed** (for instance, the patient died)
+    + event = 0 or FALSE means the follow-up time was **censored**
+
+## The `aml_432` tibble
+
+We have follow-up time in `months`, and we know if the event (death) occurred if `censored` is 0, and that the subject was censored if `censored` is 1.
+
+`aml_432` | Description 
+:---------: | :--------------------------------------- 
+`months` | known months of survival in follow-up period 
+`censored` | 1 if subject's follow-up time was censored, else 0
+
+A little re-arranging might help us.
+
+## Creating a `death` variable in `aml_432`
+
+```{r}
+#| echo: true
+
+aml_432 <- aml_432 |> mutate(death = 1 - censored)
+
+aml_432 |> tabyl(death, censored) |> adorn_title()
+```
+
+OK, we have what we need.
+
+- 18 subjects were censored so we only know they lived at least X months.
+- 5 subjects died during the study, so we know their time to death.
+
+## `death` and `months` relationship?
+
+In our `aml_432` tibble, 
+
+- `months` is follow-up time, in months
+- `death` = 1 if subject died, 0 if censored.
+
+```{r}
+#| echo: true
+favstats(months ~ death, data = aml_432) |>
+  gt() |> fmt_number(columns = mean:sd, decimals = 1) |> 
+  tab_options(table.font.size = 24) |> 
+  opt_stylize(style = 2, color = "blue")
+```
+
+## Building a Survival Object
+
+```{r}
+#| echo: true
+surv_aml <- Surv(time = aml_432$months, event = aml_432$death)
+
+head(surv_aml, 4)
+```
+
+- Subject 1 survived 161 months and then died.
+- Subject 2 survived 48 months before being censored.
+- Subject 3 survived 45 months and then died.
+- Subject 4 survived 45 months before being censored.
+
+Remember that only 5 of the 23 subjects died, the rest were censored at the last time they were seen for follow-up.
+
+## Building a Kaplan-Meier Estimate
+
+Remember that `surv_aml` is the survival object we created.
+
+```{r}
+#| echo: true
+
+km_aml <- survfit(surv_aml ~ 1, conf.int = 0.90)
+
+print(km_aml, print.rmean = TRUE)
+```
+
+- 5 events (deaths) occurred in 23 subjects.
+- Restricted mean survival time is 109 months (upper limit 161?)
+- Median survival time is 161 (why?) but has a lower bound for the 90% CI.
+
+## Kaplan-Meier Estimate 
+
+```{r}
+#| echo: true
+
+summary(km_aml)
+```
+
+- We started with 23 subjects.
+- Up to 13 months, no one died, but 6 were censored (so 17 are at risk.) Estimated survival probability = 0.941
+- By the next death at 16 months, only 15 people were still at risk. Estimated Pr(survival) now 0.878.
+
+
+## Kaplan-Meier Plot, via `survminer`
+
+- The solid line indicates survival probability at each time point (in months) 
+- The crosses indicate time points where censoring has occurred.
+- The steps down indicate events (deaths.)
+- The shading indicates 95% pointwise confidence intervals.
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+ggsurvplot(km_aml, data = aml_432, conf.int = TRUE, 
+           ggtheme = theme_bw(), palette = "lancet",
+           xlab = "Time (Months) in Study", conf.int.fill = "skyblue")
+```
+
+## Adding a "Number at Risk" Table
+
+```{r}
+#| echo: true
+#| output-location: slide
+ggsurvplot(km_aml, data = aml_432,
+           ggtheme = theme_bw(), palette = "lancet",
+           conf.int = TRUE,             # Add confidence interval
+           conf.int.fill = "skyblue",            
+           risk.table = TRUE,           # Add risk table
+           xlab = "Time (months)",      # Adjust X axis label
+           break.time.by = 12           # X ticks every 12 months
+   )
+```
+
+
+## Where We Are So Far
+
+- Created a small (n = 23) tibble, `aml_432`.
+- Observed 5 deaths, and 18 subjects censored before death.
+- Survival object (containing time and fate) called `surv_aml`
+- Created Kaplan-Meier estimate of survival function, `km_aml`.
+- Plotted the Kaplan-Meier estimate with `ggsurvplot()`.
+- Added a number at risk table to our Kaplan-Meier curve
+
+Now, let's consider a potential predictor (maintenance status) of our time-to-event outcome.
+
+## Comparing Survival, by Group
+
+Suppose we want to compare the survival functions for subjects classified by their maintenance group...
+
+```{r}
+#| echo: true
+
+aml_432 |> 
+  tabyl(maintain, death) |> 
+  adorn_totals(where = "col") |> 
+  adorn_title()
+```
+
+- In our sample, 4 of 11 in the "maintained" group and 1 of 12 in the "nonmaintained" group had the event (died).
+
+## Survival Function, by Group
+
+```{r}
+#| echo: true
+
+km_aml_grp <- survfit(surv_aml ~ aml_432$maintain)
+print(km_aml_grp, print.rmean = TRUE)
+```
+
+- 4 of 11 maintained subjects died; estimated restricted mean survival time is 97.2 months.
+- 1 of 12 non-maintained subjects died, est. restricted mean survival = 140.3 months.
+
+## Kaplan-Meier Plot, by Group
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+ggsurvplot(km_aml_grp, data = aml_432,
+           ggtheme = theme_bw(), palette = "lancet",
+           conf.int = TRUE,
+           xlab = "Time in months",
+           break.time.by = 12,
+           risk.table = TRUE,
+           risk.table.height = 0.25, 
+           pval = TRUE)
+```
+
+## Next Time: Time-to-event data
+
+- Testing the difference between two survival curves
+    - log rank tests
+    - Peto-Peto modification of the Gehan-Wilcoxon test
+- Customizing a Kaplan-Meier plot
+    - Plotting Cumulative Event Rates
+- A larger example
+- Classes 22-23: Cox models for regression on time-to-event outcomes.
