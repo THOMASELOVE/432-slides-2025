@@ -22,9 +22,8 @@ format:
 - Modeling approaches illustrated in these slides
   - Poisson Regression & Zero-Inflated Poisson (ZIP)
   - Negative Binomial Regression & Zero-Inflated Negative Binomial (ZINB)
-  - Two types of Hurdle model (one Poisson, one NB)
-
-Chapters 24-26 of the Course Notes describe this material, as well as tobit regression, and some additional issues with certain types of count models.
+  
+Chapters 24-26 of the Course Notes describe this material, as well as hurdle models (next class) and tobit regression, and some additional issues with certain types of count models.
 
 
 ## `countreg` and `topmodels` packages
@@ -62,7 +61,7 @@ library(tidyverse)
 
 conflicts_prefer(dplyr::select(), dplyr::filter(), base::max(), 
                  base::sum(), yardstick::rmse(), yardstick::mae(),
-                 pscl::zeroinfl(), pscl::hurdle())
+                 pscl::zeroinfl())
 
 theme_set(theme_bw())
 ```
@@ -285,6 +284,74 @@ tidy(mod_1) |> gt() |> fmt_number(decimals = 3)
 
 Harry and Larry have the same values for all other predictors but only Harry has private insurance. `mod_1` estimates Harry's log(`visits`) to be `r tidy(mod_1) |> filter(term == "insuranceyes") |> select(estimate) |> round_half_up(digits = 3)` larger than Larry's log(`visits`).
 
+## Dealing with log transformations
+
+OK, you ran a regression/fit a linear model and some of your variables are log-transformed.
+
+- We fit a linear model to predict the log of an outcome. How might we most effectively interpret the coefficients of that model? 
+- How does our thinking change if we only take the log of a predictor?
+- How about if we log both the outcome and the predictor?
+
+Source [is here](https://library.virginia.edu/data/articles/interpreting-log-transformations-in-a-linear-model) for further reference (also see today's README.)
+
+## Only the outcome is log-transformed {.smaller}
+
+Exponentiate the coefficient. This gives the multiplicative factor for every one-unit increase in the independent variable. 
+
+- Example: the coefficient is 0.198. exp(0.198) = 1.218962. For every one-unit increase in the independent variable, our dependent variable increases by a factor of about 1.22, or 22%. Recall that multiplying a number by 1.22 is the same as increasing the number by 22%. 
+- Likewise, multiplying a number by, say 0.84, is the same as decreasing the number by 1 – 0.84 = 0.16, or 16%.
+
+from [this source](https://library.virginia.edu/data/articles/interpreting-log-transformations-in-a-linear-model)
+
+## Only a predictor is log-transformed {.smaller}
+
+- Divide the coefficient by 100. This tells us that a 1% increase in the independent variable increases (or decreases) the dependent variable by (coefficient/100) units. 
+
+- Example: the coefficient is 0.198. 0.198/100 = 0.00198. For every 1% increase in the independent variable, our dependent variable increases by about 0.002. 
+
+- For x percent increase, multiply the coefficient by log(1.x). 
+
+- Example: For every 10% increase in the independent variable, our dependent variable increases by about 0.198 * log(1.10) = 0.02
+
+from [this source](https://library.virginia.edu/data/articles/interpreting-log-transformations-in-a-linear-model)
+
+## Both y and x are log-transformed {.smaller}
+
+Interpret the coefficient as the percent increase in the dependent variable for every 1% increase in the independent variable. 
+
+- Example: the coefficient is 0.198. For every 1% increase in the independent variable, our dependent variable increases by about 0.20%. 
+- For x percent increase, calculate 1.x to the power of the coefficient, subtract 1, and multiply by 100. 
+- Example: For every 20% increase in the independent variable, our dependent variable increases by about (1.20 0.198 - 1) * 100 = 3.7 percent.
+
+from [this source](https://library.virginia.edu/data/articles/interpreting-log-transformations-in-a-linear-model)
+
+## `mod_1` parameters
+
+- Note the exponentiation here. IRR = incidence rate ratio
+
+```{r}
+#| echo: true
+
+model_parameters(mod_1, exponentiate = TRUE, ci = 0.90)
+```
+
+- A change from no to yes in `insurance` (holding other predictors  constant) is associated with a 22% increase in our outcome, `edu`.
+
+## `mod_1` performance summaries
+
+```{r}
+#| echo: true
+
+model_performance(mod_1)
+```
+
+```{r}
+#| echo: true
+
+glance(mod_1)
+```
+
+
 ## Visualize fit: (Hanging) Rootogram
 
 ```{r}
@@ -304,6 +371,27 @@ See the next slide for details on how to interpret this...
 - The counts have been transformed with a square root transformation to prevent smaller counts from getting obscured and overwhelmed by larger counts. 
 - <https://arxiv.org/pdf/1605.01311> has more on rootograms.
 - Our Poisson model (`mod_1`) doesn't fit enough zeros or ones, and fits too many 3-12 values, then not enough of the higher values.
+
+## Checking `mod_1` (plots 1-2)
+
+```{r}
+#| echo: true
+check_model(mod_1, check = c("pp_check", "overdispersion"))
+```
+
+## Checking `mod_1` (plots 3-4)
+
+```{r}
+#| echo: true
+check_model(mod_1, check = c("homogeneity", "outliers"))
+```
+
+## Checking `mod_1` (plots 5-6)
+
+```{r}
+#| echo: true
+check_model(mod_1, check = c("vif", "qq"))
+```
 
 ## Store `mod_1` Predictions
 
@@ -331,6 +419,8 @@ mod_1_summary |> gt() |> fmt_number(decimals = 3)
 ```
 
 These will become interesting as we build additional models.
+
+
 
 # `mod_2`: A Negative Binomial Regression
 
@@ -369,6 +459,29 @@ summary(mod_2)
 tidy(mod_2) |> gt() |> fmt_number(decimals = 3)
 ```
 
+## `mod_2` parameters
+
+```{r}
+#| echo: true
+
+model_parameters(mod_2, exponentiate = TRUE, ci = 0.90)
+```
+
+
+## `mod_2` performance summaries
+
+```{r}
+#| echo: true
+
+model_performance(mod_2)
+```
+
+```{r}
+#| echo: true
+
+glance(mod_2)
+```
+
 ## Rootogram for NB Model
 
 ```{r}
@@ -378,6 +491,27 @@ plot(rootogram(mod_2, plot = FALSE), xlim = c(0, 90),
 ```
 
 Does this look better than the Poisson rootogram?
+
+## Checking `mod_2` (plots 1-2)
+
+```{r}
+#| echo: true
+check_model(mod_2, check = c("pp_check", "overdispersion"))
+```
+
+## Checking `mod_2` (plots 3-4)
+
+```{r}
+#| echo: true
+check_model(mod_2, check = c("homogeneity", "outliers"))
+```
+
+## Checking `mod_2` (plots 5-6)
+
+```{r}
+#| echo: true
+check_model(mod_2, check = c("vif", "qq"))
+```
 
 ## Store `mod_2` Predictions
 
@@ -452,6 +586,25 @@ Sadly, there's no `broom` tidying functions for these zero-inflated models.
 summary(mod_3)
 ```
 
+## `mod_3` parameters
+
+```{r}
+#| echo: true
+
+model_parameters(mod_3, ci = 0.90)
+```
+
+
+## `mod_3` performance summaries
+
+```{r}
+#| echo: true
+
+model_performance(mod_3)
+```
+
+- No `glance()` available.
+
 ## Rootogram for ZIP model
 
 ```{r}
@@ -460,6 +613,12 @@ plot(rootogram(mod_3, plot = FALSE), xlim = c(0, 90),
                main = "Rootogram for mod_3: ZIP")
 ```
 
+## Check `mod_3` model
+
+```{r}
+check_model(mod_3, check = c("vif", "overdispersion"),
+            residual_type = "normal", detrend = FALSE)
+```
 ## Store `mod_3` Predictions
 
 We have no `augment` or other `broom` functions available for zero-inflated models, so ...
@@ -535,6 +694,25 @@ mod_4 <- zeroinfl(visits ~ hospital + health + chronic +
 summary(mod_4)
 ```
 
+## `mod_4` parameters
+
+```{r}
+#| echo: true
+
+model_parameters(mod_4, ci = 0.90)
+```
+
+
+## `mod_4` performance summaries
+
+```{r}
+#| echo: true
+
+model_performance(mod_4)
+```
+
+- No `glance()` available.
+
 ## Rootogram for ZINB model
 
 ```{r}
@@ -542,6 +720,13 @@ summary(mod_4)
 
 plot(rootogram(mod_4, plot = FALSE), xlim = c(0, 90), 
                main = "Rootogram for mod_4: ZINB")
+```
+
+## Check `mod_4` model
+
+```{r}
+check_model(mod_4, check = c("vif", "overdispersion"),
+            residual_type = "normal", detrend = FALSE)
 ```
 
 ## Store `mod_4` Predictions
@@ -658,247 +843,3 @@ test_sum |>
 
 - Which model looks best? Is it an obvious choice?
 
-# Hurdle Models
-
-## The Hurdle Model 
-
-The hurdle model is a two-part model that specifies one process for zero counts and another process for positive counts. The idea is that positive counts occur once a threshold is crossed, or put another way, a hurdle is cleared. If the hurdle is not cleared, then we have a count of 0.
-
-- The first part of the model is typically a **binary logistic regression** model. This models whether an observation takes a positive count or not. 
-- The second part of the model is usually a truncated Poisson or Negative Binomial model. Truncated means we're only fitting positive counts, and not zeros. 
-
-# `mod_5`: Poisson-Logistic Hurdle Model
-
-## Fitting a Hurdle Model / Poisson-Logistic
-
-In fitting a hurdle model to our medicare training data, the interpretation would be that one process governs whether a patient visits a doctor or not, and another process governs how many visits are made.
-
-## The `mod_5` model
-
-```{r}
-#| echo: true
-mod_5 <- hurdle(visits ~ hospital + health + chronic +
-                  sex + school + insurance,
-              dist = "poisson", zero.dist = "binomial", 
-              data = med_train)
-mod_5
-```
-
-## `mod_5` summary
-
-```{r}
-#| echo: true
-
-summary(mod_5)
-```
-
-## Rootogram for Poisson-Logistic Hurdle model
-
-```{r}
-#| echo: true
-plot(rootogram(mod_5, plot = FALSE), xlim = c(0, 90), 
-               main = "mod_5 Poisson-Logistic Hurdle")
-```
-
-## Store `mod_5` Predictions
-
-No `augment` or other `broom` functions for hurdle models, so ...
-
-```{r}
-#| echo: true
-mod_5_aug <- med_train |>
-    mutate(".fitted" = predict(mod_5, type = "response"),
-           ".resid" = resid(mod_5, type = "response"))
-
-mod_5_aug |> select(subject, visits, .fitted, .resid) |>
-  head(3)
-```
-
-## Training Sample `mod_5` Fit
-
-```{r}
-#| echo: true
-mod_5_summary <- 
-  mets(mod_5_aug, truth = visits, estimate = .fitted) |>
-  mutate(model = "mod_5") |> relocate(model)
-mod_5_summary |> gt() |> fmt_number(decimals = 3)
-```
-
-## Training Sample through `mod_5`
-
-```{r}
-#| echo: true
-bind_rows(mod_1_summary, mod_2_summary, mod_3_summary, 
-          mod_4_summary, mod_5_summary) |> 
-  pivot_wider(names_from = model, 
-              values_from = .estimate) |> 
-  gt() |> fmt_number(decimals = 3) |> 
-  tab_options(table.font.size = 20)
-```
-
-What do you think?
-
-## Are ZIP and Poisson-Logistic Hurdle the Same?
-
-```{r}
-#| echo: true
-temp_check <- tibble(
-  subject = mod_3_aug$subject,
-  visits = mod_3_aug$visits,
-  pred_zip = mod_3_aug$.fitted,
-  pred_hur = mod_5_aug$.fitted,
-  diff = pred_hur - pred_zip)
-
-favstats(~ diff, data = temp_check)
-```
-
-## Vuong test: `mod_3` vs. `mod_5`
-
-```{r}
-#| echo: true
-vuong(mod_3, mod_5)
-```
-
-There's some evidence `mod_3` (ZIP) fits a bit better than `mod_5` (Hurdle) in our training sample, though the p value (barely) exceeds 0.05.
-
-# `mod_6`: Negative Binomial-Logistic Hurdle Model
-
-## Hurdle Model / NB-Logistic
-
-```{r}
-#| echo: true
-mod_6 <- hurdle(visits ~ hospital + health + chronic +
-                  sex + school + insurance,
-              dist = "negbin", zero.dist = "binomial", 
-              data = med_train)
-mod_6
-```
-
-
-## `mod_6` Summary
-
-```{r}
-#| echo: true
-
-summary(mod_6)
-```
-
-
-## Rootogram for NB-Logistic Hurdle model
-
-```{r}
-#| echo: true
-
-plot(rootogram(mod_6, plot = FALSE), xlim = c(0, 90), 
-               main = "mod_6 Neg. Bin.-Logistic Hurdle")
-```
-
-## Store `mod_6` Predictions
-
-```{r}
-#| echo: true
-mod_6_aug <- med_train |>
-    mutate(".fitted" = predict(mod_6, type = "response"),
-           ".resid" = resid(mod_6, type = "response"))
-
-mod_6_aug |> select(subject, visits, .fitted, .resid) |>
-  head(3)
-```
-
-## Training Sample `mod_6` Fit
-
-```{r}
-#| echo: true
-mod_6_summary <- 
-  mets(mod_6_aug, truth = visits, estimate = .fitted) |>
-  mutate(model = "mod_6") |> relocate(model)
-mod_6_summary |> 
-  gt() |> fmt_number(decimals = 3)
-```
-
-## Training Sample through `mod_6`
-
-```{r}
-#| echo: true
-bind_rows(mod_1_summary, mod_2_summary, mod_3_summary, 
-          mod_4_summary, mod_5_summary, mod_6_summary) |> 
-  pivot_wider(names_from = model, values_from = .estimate) |> 
-  select(-.estimator) |> 
-  gt() |> fmt_number(decimals = 3) |> 
-  tab_options(table.font.size = 20)
-```
-
-## Vuong test: `mod_4` vs. `mod_6`
-
-```{r}
-#| echo: true
-vuong(mod_4, mod_6)
-```
-
-There's some evidence `mod_4` (ZINB) fits better than `mod_6` (NB Hurdle) in our training sample, but not much, based on the large *p* value.
-
-# Validation including Hurdle Models
-
-## Validation: Test Sample Predictions
-
-Predict the `visit` counts for each subject in our test sample.
-
-```{r}
-#| echo: true
-test_5 <- predict(mod_5, newdata = med_test,
-                  type.predict = "response")
-test_6 <- predict(mod_6, newdata = med_test,
-                  type.predict = "response")
-```
-
-## Create a Tibble with Predictions
-
-Combine the various predictions into a tibble with the original data.
-
-```{r}
-#| echo: true
-test_res6 <- bind_cols(med_test, 
-              pre_m1 = test_1, pre_m2 = test_2, 
-              pre_m3 = test_3, pre_m4 = test_4, 
-              pre_m5 = test_5, pre_m6 = test_6)
-
-names(test_res6)
-```
-
-## Summarize fit in test sample for each model
-
-```{r}
-#| echo: true
-m1_sum <- mets(test_res6, truth = visits, estimate = pre_m1) |>
-  mutate(model = "mod_1") 
-m2_sum <- mets(test_res6, truth = visits, estimate = pre_m2) |>
-  mutate(model = "mod_2") 
-m3_sum <- mets(test_res6, truth = visits, estimate = pre_m3) |>
-  mutate(model = "mod_3")
-m4_sum <- mets(test_res6, truth = visits, estimate = pre_m4) |>
-  mutate(model = "mod_4")
-m5_sum <- mets(test_res6, truth = visits, estimate = pre_m5) |>
-  mutate(model = "mod_5")
-m6_sum <- mets(test_res6, truth = visits, estimate = pre_m6) |>
-  mutate(model = "mod_6")
-
-test_sum6 <- bind_rows(m1_sum, m2_sum, m3_sum, m4_sum,
-                      m5_sum, m6_sum)
-```
-
-## Validation Results in Test Sample
-
-```{r}
-#| echo: true
-test_sum6 <- bind_rows(m1_sum, m2_sum, m3_sum, m4_sum,
-                      m5_sum, m6_sum) |>
-  pivot_wider(names_from = model, 
-              values_from = .estimate)
-
-test_sum6 |>
-  select(-.estimator) |> 
-  gt() |> fmt_number(decimals = 4) |> 
-  tab_options(table.font.size = 20)
-```
-
-- Now which model would you choose?

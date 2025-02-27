@@ -17,6 +17,7 @@ format:
 
 ## Today's Agenda
 
+- Two types of Hurdle model (one Poisson, one NB)
 - Can we fit a linear model to a count outcome?
 - Selecting non-linear terms in light of Spearman $\rho^2$ 
 - Fitting a Poisson regression with the `rms` package
@@ -35,17 +36,19 @@ library(rsample); library(yardstick)
 library(car); library(here); library(conflicted)
 library(countreg)        ## for rootograms
 library(topmodels)       ## for rootograms
+library(mosaic)
+library(pscl)          
 library(rms)
 library(easystats)
 library(tidyverse)
 
 theme_set(theme_bw())
 
-conflicts_prefer(dplyr::select, rms::Predict, yardstick::rmse,
-                 yardstick::mae)
+conflicts_prefer(dplyr::select(), dplyr::filter(), base::max(), 
+                 base::sum(), rms::Predict(), 
+                 yardstick::rmse(), yardstick::mae(),
+                 pscl::zeroinfl(), pscl::hurdle())
 ```
-
-# Could we fit a linear model for a count outcome? 
 
 ## The `medicare` data from Class 1
 
@@ -86,6 +89,364 @@ Predictor | Description
 `school`   | years of education
 `insurance` | subject (also) has private insurance? (yes/no)
 
+## First Four models (fit last class)
+
+```{r}
+#| echo: true
+mod_1 <- glm(visits ~ hospital + health + chronic +
+                  sex + school + insurance,
+              data = med_train, family = "poisson")
+mod_2 <- glm.nb(visits ~ hospital + health + chronic +
+                  sex + school + insurance,
+              data = med_train)
+mod_3 <- zeroinfl(visits ~ hospital + health + 
+                    chronic + sex + school + insurance,
+                    data = med_train)
+mod_4 <- zeroinfl(visits ~ hospital + health + chronic +
+                  sex + school + insurance,
+              dist = "negbin", data = med_train)
+```
+
+## First Four Models, augmented
+
+```{r}
+#| echo: true
+mod_1_aug <- augment(mod_1, med_train, 
+                     type.predict = "response")
+mod_2_aug <- augment(mod_2, med_train, 
+                     type.predict = "response")
+mod_3_aug <- med_train |>
+    mutate(".fitted" = predict(mod_3, type = "response"),
+           ".resid" = resid(mod_3, type = "response"))
+mod_4_aug <- med_train |>
+    mutate(".fitted" = predict(mod_4, type = "response"),
+           ".resid" = resid(mod_4, type = "response"))
+```
+
+## First Four Model Summaries
+
+```{r}
+#| echo: true
+mets <- metric_set(rsq, rmse, mae)
+mod_1_summary <- 
+  mets(mod_1_aug, truth = visits, estimate = .fitted) |>
+  mutate(model = "mod_1") |> relocate(model)
+mod_2_summary <- 
+  mets(mod_2_aug, truth = visits, estimate = .fitted) |>
+  mutate(model = "mod_2") |> relocate(model)
+mod_3_summary <- 
+  mets(mod_3_aug, truth = visits, estimate = .fitted) |>
+  mutate(model = "mod_3") |> relocate(model)
+mod_4_summary <- 
+  mets(mod_4_aug, truth = visits, estimate = .fitted) |>
+  mutate(model = "mod_4") |> relocate(model)
+```
+
+## Training Sample through `mod_4`
+
+```{r}
+bind_rows(mod_1_summary, mod_2_summary, 
+          mod_3_summary, mod_4_summary) |> 
+  pivot_wider(names_from = model, 
+              values_from = .estimate) |> 
+  gt() |> fmt_number(decimals = 3) |>
+  tab_options(table.font.size = 20)
+```
+
+# Hurdle Models
+
+## The Hurdle Model 
+
+The hurdle model is a two-part model that specifies one process for zero counts and another process for positive counts. The idea is that positive counts occur once a threshold is crossed, or put another way, a hurdle is cleared. If the hurdle is not cleared, then we have a count of 0.
+
+- The first part of the model is typically a **binary logistic regression** model. This models whether an observation takes a positive count or not. 
+- The second part of the model is usually a truncated Poisson or Negative Binomial model. Truncated means we're only fitting positive counts, and not zeros. 
+
+# `mod_5`: Poisson-Logistic Hurdle Model
+
+## Fitting a Hurdle Model / Poisson-Logistic
+
+In fitting a hurdle model to our medicare training data, the interpretation would be that one process governs whether a patient visits a doctor or not, and another process governs how many visits are made.
+
+## The `mod_5` model
+
+```{r}
+#| echo: true
+mod_5 <- hurdle(visits ~ hospital + health + chronic +
+                  sex + school + insurance,
+              dist = "poisson", zero.dist = "binomial", 
+              data = med_train)
+mod_5
+```
+
+## `mod_5` summary
+
+```{r}
+#| echo: true
+
+summary(mod_5)
+```
+
+## `mod_5` parameters
+
+```{r}
+#| echo: true
+
+model_parameters(mod_5, ci = 0.90)
+```
+
+
+## `mod_5` performance summaries
+
+```{r}
+#| echo: true
+
+model_performance(mod_5)
+```
+
+- No `glance()` available.
+
+## Rootogram for Poisson-Logistic Hurdle model
+
+```{r}
+#| echo: true
+plot(rootogram(mod_5, plot = FALSE), xlim = c(0, 90), 
+               main = "mod_5 Poisson-Logistic Hurdle")
+```
+
+## Store `mod_5` Predictions
+
+No `augment` or other `broom` functions for hurdle models, so ...
+
+```{r}
+#| echo: true
+mod_5_aug <- med_train |>
+    mutate(".fitted" = predict(mod_5, type = "response"),
+           ".resid" = resid(mod_5, type = "response"))
+
+mod_5_aug |> select(subject, visits, .fitted, .resid) |>
+  head(3)
+```
+
+## Training Sample `mod_5` Fit
+
+```{r}
+#| echo: true
+mod_5_summary <- 
+  mets(mod_5_aug, truth = visits, estimate = .fitted) |>
+  mutate(model = "mod_5") |> relocate(model)
+mod_5_summary |> gt() |> fmt_number(decimals = 3) |>
+  tab_options(table.font.size = 20)
+```
+
+## Training Sample through `mod_5`
+
+```{r}
+#| echo: true
+bind_rows(mod_1_summary, mod_2_summary, mod_3_summary, 
+          mod_4_summary, mod_5_summary) |> 
+  pivot_wider(names_from = model, 
+              values_from = .estimate) |> 
+  gt() |> fmt_number(decimals = 3) |> 
+  tab_options(table.font.size = 20)
+```
+
+What do you think?
+
+## Are ZIP and Poisson-Logistic Hurdle the Same?
+
+```{r}
+#| echo: true
+temp_check <- tibble(
+  subject = mod_3_aug$subject,
+  visits = mod_3_aug$visits,
+  pred_zip = mod_3_aug$.fitted,
+  pred_hur = mod_5_aug$.fitted,
+  diff = pred_hur - pred_zip)
+
+favstats(~ diff, data = temp_check)
+```
+
+## Vuong test: `mod_3` vs. `mod_5`
+
+```{r}
+#| echo: true
+vuong(mod_3, mod_5)
+```
+
+There's some evidence `mod_3` (ZIP) fits a bit better than `mod_5` (Hurdle) in our training sample, though the p value (barely) exceeds 0.05.
+
+# `mod_6`: Negative Binomial-Logistic Hurdle Model
+
+## Hurdle Model / NB-Logistic
+
+```{r}
+#| echo: true
+mod_6 <- hurdle(visits ~ hospital + health + chronic +
+                  sex + school + insurance,
+              dist = "negbin", zero.dist = "binomial", 
+              data = med_train)
+mod_6
+```
+
+
+## `mod_6` Summary
+
+```{r}
+#| echo: true
+
+summary(mod_6)
+```
+
+## `mod_6` parameters
+
+```{r}
+#| echo: true
+
+model_parameters(mod_6, ci = 0.90)
+```
+
+
+## `mod_6` performance summaries
+
+```{r}
+#| echo: true
+
+model_performance(mod_6)
+```
+
+- No `glance()` available.
+
+## Rootogram for NB-Logistic Hurdle model
+
+```{r}
+#| echo: true
+
+plot(rootogram(mod_6, plot = FALSE), xlim = c(0, 90), 
+               main = "mod_6 Neg. Bin.-Logistic Hurdle")
+```
+
+## Store `mod_6` Predictions
+
+```{r}
+#| echo: true
+mod_6_aug <- med_train |>
+    mutate(".fitted" = predict(mod_6, type = "response"),
+           ".resid" = resid(mod_6, type = "response"))
+
+mod_6_aug |> select(subject, visits, .fitted, .resid) |>
+  head(3)
+```
+
+## Training Sample `mod_6` Fit
+
+```{r}
+#| echo: true
+mod_6_summary <- 
+  mets(mod_6_aug, truth = visits, estimate = .fitted) |>
+  mutate(model = "mod_6") |> relocate(model)
+mod_6_summary |> 
+  gt() |> fmt_number(decimals = 3) |>
+  tab_options(table.font.size = 20)
+```
+
+## Training Sample through `mod_6`
+
+```{r}
+#| echo: true
+bind_rows(mod_1_summary, mod_2_summary, mod_3_summary, 
+          mod_4_summary, mod_5_summary, mod_6_summary) |> 
+  pivot_wider(names_from = model, values_from = .estimate) |> 
+  select(-.estimator) |> 
+  gt() |> fmt_number(decimals = 3) |>
+  tab_options(table.font.size = 20)
+```
+
+## Vuong test: `mod_4` vs. `mod_6`
+
+```{r}
+#| echo: true
+vuong(mod_4, mod_6)
+```
+
+There's some evidence `mod_4` (ZINB) fits better than `mod_6` (NB Hurdle) in our training sample, but not much, based on the large *p* value.
+
+# Validation including Hurdle Models
+
+## Validation: Test Sample Predictions
+
+Predict the `visit` counts for each subject in our test sample.
+
+```{r}
+#| echo: true
+test_1 <- predict(mod_1, newdata = med_test,
+                  type.predict = "response")
+test_2 <- predict(mod_2, newdata = med_test,
+                  type.predict = "response")
+test_3 <- predict(mod_3, newdata = med_test,
+                  type.predict = "response")
+test_4 <- predict(mod_4, newdata = med_test,
+                  type.predict = "response")
+test_5 <- predict(mod_5, newdata = med_test,
+                  type.predict = "response")
+test_6 <- predict(mod_6, newdata = med_test,
+                  type.predict = "response")
+```
+
+## Create a Tibble with Predictions
+
+Combine the various predictions into a tibble with the original data.
+
+```{r}
+#| echo: true
+test_res6 <- bind_cols(med_test, 
+              pre_m1 = test_1, pre_m2 = test_2, 
+              pre_m3 = test_3, pre_m4 = test_4, 
+              pre_m5 = test_5, pre_m6 = test_6)
+
+names(test_res6)
+```
+
+## Summarize fit in test sample for each model
+
+```{r}
+#| echo: true
+m1_sum <- mets(test_res6, truth = visits, estimate = pre_m1) |>
+  mutate(model = "mod_1") 
+m2_sum <- mets(test_res6, truth = visits, estimate = pre_m2) |>
+  mutate(model = "mod_2") 
+m3_sum <- mets(test_res6, truth = visits, estimate = pre_m3) |>
+  mutate(model = "mod_3")
+m4_sum <- mets(test_res6, truth = visits, estimate = pre_m4) |>
+  mutate(model = "mod_4")
+m5_sum <- mets(test_res6, truth = visits, estimate = pre_m5) |>
+  mutate(model = "mod_5")
+m6_sum <- mets(test_res6, truth = visits, estimate = pre_m6) |>
+  mutate(model = "mod_6")
+
+test_sum6 <- bind_rows(m1_sum, m2_sum, m3_sum, m4_sum,
+                      m5_sum, m6_sum)
+```
+
+## Validation Results in Test Sample
+
+```{r}
+#| echo: true
+test_sum6 <- bind_rows(m1_sum, m2_sum, m3_sum, m4_sum,
+                      m5_sum, m6_sum) |>
+  pivot_wider(names_from = model, 
+              values_from = .estimate)
+
+test_sum6 |>
+  select(-.estimator) |> 
+  gt() |> fmt_number(decimals = 4) |> 
+  tab_options(table.font.size = 20)
+```
+
+- Now which model would you choose?
+
+# Could we fit a linear model for a count outcome? 
+
 ## Linear Model for our Count Outcome
 
 Let's fit a **linear regression** (`mod_0`: note *log* transformation) to go along with the Poisson regression (`mod_1`) we fit last time.
@@ -117,44 +478,33 @@ tidy(mod_1) |> gt() |> fmt_number(decimals = 3) |>
   tab_options(table.font.size = 20)
 ```
 
-## Linear Regression Assumptions?
-
-```{r}
-#| echo: true
-par(mfrow = c(1,2)); plot(mod_0, which = 1:2)
-```
-
-## Linear Regression Assumptions?
-
-```{r}
-#| echo: true
-par(mfrow = c(1,2)); plot(mod_0, which = c(3,5))
-```
-
-## Poisson Regression Plots?
-
-```{r}
-#| echo: true
-par(mfrow = c(1,2)); plot(mod_1, which = 1:2)
-```
-
-## Poisson Regression Plots
-
-```{r}
-#| echo: true
-par(mfrow = c(1,2)); plot(mod_1, which = c(3, 5))
-```
-
 ## Rootogram for Linear Model
 
 ```{r}
+#| echo: true
 rootogram(mod_0)
 ```
 
 ## Rootogram for Poisson Model
 
 ```{r}
+#| echo: true
 rootogram(mod_1)
+```
+
+
+## Linear Regression Assumptions?
+
+```{r}
+#| echo: true
+check_model(mod_0)
+```
+
+## Poisson Regression Plots?
+
+```{r}
+#| echo: true
+check_model(mod_1)
 ```
 
 
@@ -200,19 +550,15 @@ describe(test_1) ## predictions from Poisson fit
 ```{r}
 #| echo: true
 mets <- metric_set(rsq, rmse, mae)
-
 test_res <- bind_cols(med_test, pre_m0 = test_0, pre_m1 = test_1)
-
 m0_sum <- mets(test_res, truth = visits, estimate = pre_m0) |>
   mutate(model = "Linear")
-
 m1_sum <- mets(test_res, truth = visits, estimate = pre_m1) |>
   mutate(model = "Poisson") 
-
 test_sum <- bind_rows(m0_sum, m1_sum) |>
   pivot_wider(names_from = model, values_from = .estimate)
-
-test_sum |> select(-.estimator) |> gt() |> fmt_number(decimals = 3) |> 
+test_sum |> select(-.estimator) |> 
+  gt() |> fmt_number(decimals = 3) |> 
   tab_options(table.font.size = 20)
 ```
 
