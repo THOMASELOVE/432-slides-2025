@@ -185,7 +185,15 @@ modelA <- polr(exposure ~ task + ventilation + dur_c,
                 data=asbestos, Hess = TRUE)
 ```
 
-## Model Summary
+## `modelA` parameters
+
+```{r}
+#| echo: true
+model_parameters(modelA, pretty_names = FALSE, ci = 0.95)
+```
+
+
+## `modelA` Summary
 
 ```{r}
 #| echo: true
@@ -283,6 +291,16 @@ $$
 3.00 + 2.25 [task=Ins.] + 2.16 [vent=General] - 0.001 dur_c
 $$
 
+## `model_performance()` and `glance()`
+
+```{r}
+#| echo: true
+
+model_performance(modelA)
+
+glance(modelA)
+```
+
 # Comparing `polr` models
 
 ## `modelA` vs. "Intercept only" model
@@ -302,6 +320,35 @@ AIC(model.1, modelA)
 BIC(model.1, modelA)
 ```
 
+## Compare Parameters
+
+```{r}
+#| echo: true
+
+compare_parameters(model.1, modelA)
+```
+
+## Compare Performance
+
+```{r}
+#| echo: true
+
+plot(compare_performance(model.1, modelA))
+```
+
+## Classification Tables
+
+- for `modelA` and `model.1`
+
+```{r}
+#| echo: true
+addmargins(table(predict(modelA), asbestos$exposure, 
+                 dnn = c("predicted", "actual")))
+addmargins(table(predict(model.1), asbestos$exposure, 
+                 dnn = c("predicted", "actual")))
+```
+
+
 ## `modelA` vs. "No duration" Model
 
 Compare to a model with just Task and Ventilation
@@ -313,6 +360,18 @@ anova(modelA, modelTV) |>
   gt() |> tab_options(table.font.size = 20)
 AIC(modelA, modelTV)
 BIC(modelA, modelTV)
+```
+
+## Classification Tables
+
+- for `modelA` and `modelTV`
+
+```{r}
+#| echo: true
+addmargins(table(predict(modelA), asbestos$exposure, 
+                 dnn = c("predicted", "actual")))
+addmargins(table(predict(modelTV), asbestos$exposure, 
+                 dnn = c("predicted", "actual")))
 ```
 
 ## task*ventilation interaction?
@@ -431,6 +490,14 @@ BIC(mult_TV, modelTV)
 
 - `mult_TV` is the multinomial model
 - `modelTV` is the polr model
+
+## Compare Performance
+
+```{r}
+#| echo: true
+plot(compare_performance(mult_TV, modelTV))
+```
+
 
 # Using `rms` to fit the POLR model via `lrm()`
 

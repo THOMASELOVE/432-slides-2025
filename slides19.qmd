@@ -47,8 +47,8 @@ library(rms)
 library(easystats)
 library(tidyverse)
 
-conflicts_prefer(janitor::clean_names, dplyr::filter, dplyr::select,
-                 dplyr::summarize)
+conflicts_prefer(janitor::clean_names, base::sum,
+                 dplyr::filter, dplyr::select, dplyr::summarize)
 
 theme_set(theme_bw())
 ```
@@ -287,7 +287,8 @@ Predictions in the rows, Observed in the columns
 ```{r}
 #| echo: true
 
-addmargins(table(predict(mod_p1), gradschool$apply))
+addmargins(table(predict(mod_p1), gradschool$apply, 
+                 dnn = c("predicted", "actual")))
 ```
 
 We only predict one subject to be in the "very likely" group by modal prediction.
@@ -317,6 +318,15 @@ We'll have a total of five free parameters when we add in the slopes ($\beta$) f
 #| echo: true
 summary(mod_p1)
 ```
+
+## Model Parameters for `mod_p1`
+
+```{r}
+#| echo: true
+
+model_parameters(mod_p1, pretty_names = FALSE, ci = 0.90)
+```
+
 
 ## Understanding the Model
 
@@ -356,7 +366,7 @@ Confidence intervals for the slope coefficients on the log odds scale can be est
 
 ```{r}
 #| echo: true
-confint(mod_p1)
+confint(mod_p1, conf.level = 0.95)
 ```
 
 These CIs describe results in units of ordered log odds.
@@ -370,7 +380,15 @@ These CIs describe results in units of ordered log odds.
 #| echo: true
 
 exp(coef(mod_p1))
-exp(confint(mod_p1))
+exp(confint(mod_p1, conf.level = 0.95))
+```
+
+## Parameters for `mod_p1` (exponentiating)
+
+```{r}
+#| echo: true
+
+model_parameters(mod_p1, exponentiate = TRUE, pretty_names = FALSE, ci = 0.95)
 ```
 
 ## Interpreting the Coefficients
@@ -433,6 +451,15 @@ glance(mod_p0) |> gt() |>
 ```
 
 
+## Compare Parameters
+
+```{r}
+#| echo: true
+ 
+compare_parameters(mod_p0, mod_p1)
+```
+
+
 ## Tidying `mod_p0`
 
 ```{r}
@@ -469,6 +496,15 @@ m1_multi <- multinom(apply ~ pared + public + gpa,
 #| echo: true
 m1_multi
 ```
+
+## Parameters: `m1_multi`
+
+```{r}
+#| echo: true
+
+model_parameters(m1_multi, ci = 0.95, pretty_names = FALSE)
+```
+
 
 ## Tidying `m1_multi`
 
@@ -515,10 +551,30 @@ BIC(mod_p1); BIC(m1_multi)
 ## What to do in light of these results...
 
 - A *p* value isn't usually the best way to assess the proportional odds assumption, but it does provide some evidence of model adequacy.
-- The stronger BIC (and only slightly worse AIC) for our POLR model relative to the multinomial gives conflicting advice.
+- The stronger BIC for our POLR model relative to the multinomial gives conflicting advice.
     - One alternative: fit the multinomial model instead. 
     - Another: fit a check of residuals (see Harrell's RMS text.)
-    - Another: fit a different model for ordinal regression. For example, `orm` in the `rms` package. (Next time.)
+    - Another: fit a different model for ordinal regression. For example, `orm` in the `rms` package. (Coming soon.)
+
+## Comparing `mod_p1` and `m1_multi`
+
+```{r}
+plot(compare_performance(mod_p1, m1_multi))
+```
+
+## Classification Tables
+
+```{r}
+#| echo: true
+
+addmargins(table(predict(mod_p1), gradschool$apply, 
+                 dnn = c("predicted", "actual")))
+
+addmargins(table(predict(m1_multi), gradschool$apply, 
+                 dnn = c("predicted", "actual")))
+```
+
+- Which looks better?
 
 # Using `lrm` for Proportional Odds Logistic Regression
 

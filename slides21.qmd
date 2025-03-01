@@ -276,7 +276,7 @@ The odds ratio for a gator's choice being invertebrates rather than Other would 
 
 ```{r}
 #| echo: true
-table(predict(try1), gator1$choice, dnn = c("predicted", "actual"))
+addmargins(table(predict(try1), gator1$choice, dnn = c("predicted", "actual")))
 ```
 
 - Our `try1` model predicts no choices of "Other".
@@ -813,7 +813,7 @@ We could perform similar calculations for all other combinations of size and lak
 ```{r}
 #| echo: true
 
-table(predict(fit_LS), gator2$food, dnn = c("predicted", "actual"))
+addmargins(table(predict(fit_LS), gator2$food, dnn = c("predicted", "actual")))
 ```
 
 - So we only predict "fish" and "invert" with `fit_LS` and modal prediction, and `fit_LS` makes 84 + 22 = 106 correct predictions out of 219 opportunities (48.4% correct.)
@@ -823,7 +823,7 @@ table(predict(fit_LS), gator2$food, dnn = c("predicted", "actual"))
 ```{r}
 #| echo: true
 
-table(predict(fit_SAT), gator2$food, dnn = c("predicted", "actual"))
+addmargins(table(predict(fit_SAT), gator2$food, dnn = c("predicted", "actual")))
 ```
 
 - `fit_SAT` only predicts "fish" and "invert" with this model, and make 83 + 30 = 113 correct predictions out of 219 opportunities (51.6% correct.)
@@ -833,7 +833,7 @@ table(predict(fit_SAT), gator2$food, dnn = c("predicted", "actual"))
 ```{r}
 #| echo: true
 
-table(predict(fit_1), gator2$food, dnn = c("predicted", "actual"))
+addmargins(table(predict(fit_1), gator2$food, dnn = c("predicted", "actual")))
 ```
 
 - `fit_SAT` only predicts "fish" and makes 94 correct predictions out of 219 opportunities (42.9% correct.)
