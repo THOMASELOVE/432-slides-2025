@@ -1,0 +1,651 @@
+---
+title: "432 Class 22"
+author: Thomas E. Love, Ph.D.
+date: "2025-04-03"
+format:
+  revealjs: 
+    theme: dark
+    embed-resources: true
+    self-contained: true
+    slide-number: true
+    footnotes-hover: true
+    preview-links: auto
+    date-format: iso
+    logo: 432-2025-pic.png
+    footer: "432 Class 22 | 2025-04-03 | <https://thomaselove.github.io/432-2025/>"
+---
+
+## Today's Topic: Time-to-Event Data
+
+- Before Spring Break, we discussed
+    - Kaplan-Meier Estimation of the Survival Function
+    - Creating Survival Objects, Drawing Survival Curves
+    - Testing the difference between Survival Curves
+- Today: start Cox Proportional Hazards Regression
+  - The Hazard Function and its Estimation
+
+See Chapters 29-31 of our [Course Notes](https://thomaselove.github.io/432-notes/)
+
+## Today's R Setup
+
+```{r}
+#| echo: true
+#| message: false
+#| warning: false
+
+knitr::opts_chunk$set(comment=NA)
+
+library(janitor)
+library(naniar)
+library(haven)
+library(here)
+library(conflicted)
+library(broom)
+library(gt)
+library(rms)
+library(survival)
+library(survminer)
+library(easystats)
+library(tidyverse)
+
+theme_set(theme_bw())
+```
+
+## The Stanford Heart Transplant Study
+
+The Stanford University Heart Transplant Study^[See <https://www.openintro.org/data/index.php?data=heart_transplant> for more details] examined whether an experimental heart transplant program increased lifespan. The `heart_tr.sav` data (saved as an SPSS file) includes 103 observations on 7 variables, as we'll see. 
+
+- The data include `survtime`, which is the number of days the subject was alive after the date they were determined to be a candidate for heart transplant until the termination of the study.
+
+Our first step is to ingest the data, and build a tibble.
+
+## What's in the heart_tr data? {.smaller}
+
+Variable | Description
+:--------: | :------------------------------------------------------------
+`id` | Random last name, assigned to the subject by Dr. Love
+`age` | subject's age in years at the start of the study
+`survived` | survival status (alive or dead) at end of follow-up
+`survtime` | days subject was alive from the start of the study to its end
+`prior` | did the subject have a prior surgery (yes or no)
+`transplant` | treatment (received a transplant) or control (did not)
+`wait` | waiting time for transplant (in days)
+
+## Ingesting data from an SPSS file
+
+We'll use the `read_spss()` function^[We could also use `read_sav()`, also from **haven**.], from the **haven** package.
+
+```{r}
+#| echo: true
+heart_tr <- read_spss(here("c22/data/heart_tr.sav"))
+
+dim(heart_tr)
+
+names(heart_tr)
+```
+
+## Looking at the `heart_tr` data
+
+```{r}
+#| echo: true
+heart_tr
+```
+
+- Note the `<dbl+lbl>` types for the columns containing categorical information.
+
+## What are the labels for `survived`?
+
+- Here are two options for figuring this out:
+
+```{r}
+#| echo: true
+heart_tr |> count(survived) # numeric codes, with labels
+print_labels(heart_tr$survived) 
+```
+
+- Suppose we want to use a factor, without these specialized value labels, to represent the information in `survived`.
+
+## Converting `survived` into a factor, without labels
+
+```{r}
+#| echo: true
+heart_tr <- heart_tr |>
+  mutate(survived = fct_recode(factor(survived), 
+                               "alive" = "1", "dead" = "2"))
+
+heart_tr |> count(survived) # now a factor, without labels
+```
+
+Now, we have a factor representation of the `survived` information, with values that make sense.
+
+## Converting `prior` into a factor
+
+```{r}
+#| echo: true
+heart_tr |> count(prior) # numeric codes, with labels
+
+heart_tr <- heart_tr |>
+  mutate(prior = fct_recode(factor(prior), "yes" = "1", "no" = "2"))
+```
+
+- and now, we have a meaningful factor for `prior`, too.
+
+```{r}
+#| echo: true
+heart_tr |> count(prior) # now a factor, without labels
+```
+
+## `tranplant` into a 0/1 indicator
+
+Instead of making `transplant` into a factor, we'll create a numeric description of the `transplant` information, where `transplant` = 1 will mean that the subject did have a heart transplant, and `transplant` = 0 will mean that the subject did not have a heart transplant.
+
+```{r}
+#| echo: true
+heart_tr |> count(transplant) # numeric codes, with labels
+```
+
+## Converting `transplant` to 0/1
+
+```{r}
+#| echo: true
+heart_tr <- heart_tr |>
+  mutate(transplant = as.numeric(transplant == 1))
+
+heart_tr |> count(transplant) # 1/0, no labels
+```
+
+## `heart_tr` after our changes {.smaller}
+
+```{r}
+#| echo: true
+glimpse(heart_tr)
+```
+
+- So we no longer have any labels, and our categorical variables are presented as factors (`survived` and `prior`) or as a 1/0 numeric variable (`transplant`.)
+- Because our subject identifier `id` was a set of (fake) last names, rather than numbers, this is already a character variable, which is what we want. Are they unique?
+
+```{r}
+#| echo: true
+identical(nrow(heart_tr), n_distinct(heart_tr$id))
+```
+
+## Creating a Survival Object
+
+- `survtime` shows the in-study time (in days) until death or censoring
+- `survived` is a factor showing "dead" or "alive".
+
+```{r}
+#| echo: true
+heart_tr$S <- Surv(time = heart_tr$survtime, 
+                   event = heart_tr$survived == "dead")
+
+head(heart_tr$S)
+```
+
+- The first subject died after 6 days, while the second died after 50 days. The third subject was censored after 1799 days.
+
+## Compare the two `transplant` groups
+
+```{r}
+#| echo: true
+km_tr <- survfit(S ~ transplant, data = heart_tr)
+
+km_tr
+```
+
+## Plotting the K-M Curves
+
+```{r}
+#| echo: true
+
+ggsurvplot(km_tr, data = heart_tr, palette = "aaas")
+```
+
+## Kaplan-Meier Estimates (table)
+
+```{r}
+#| echo: true
+
+summary(km_tr)
+```
+
+
+## How about a log rank test?
+
+```{r}
+#| echo: true
+
+survdiff(S ~ transplant, data = heart_tr)
+```
+
+- What can we conclude from this result?
+
+## Log-Log Plot for K-M estimation
+
+- The two curves do not meet during the observation period, indicating the satisfaction of the proportional hazard assumption made by the log rank test.
+
+```{r}
+#| echo: true
+#| fig-height: 3
+plot(survfit(S ~ transplant, data = heart_tr), col = c(1), fun = "cloglog")
+```
+
+## Cumulative Event Rate for `km_tr`
+
+- Add fun = "event" to our `ggsurvplot()`, and
+- A table of subjects at risk over time, and
+- The p value from the log rank test.
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+ggsurvplot(km_tr, data = heart_tr, palette = "aaas",
+           fun = "event",
+           xlab = "Survival time in days", 
+           break.time.by = 365,
+           risk.table = TRUE, risk.table.height = 0.25,
+           pval = TRUE, pval.method = TRUE, 
+           pval.size = 4, pval.method.size = 4,
+           pval.coord = c(900, 0.20), pval.method.coord = c(900, 0.30))
+```
+
+
+## The Hazard Function H(t)
+
+If S(t) is the survival function, and time t is taken to be continuous, then the **hazard function** H(t) is defined as:
+
+$$
+S(t) = e^{H(t)} \mbox{ and, thus, } H(t) = -ln(S(t))
+$$
+
+- H(t) is used to describe the concept of the risk of "failure" in an interval after time t, conditioned on the subject having survived to time t.
+- H(t) is the **cumulative** hazard function, to emphasize that its value is the "sum" of the hazard up to time t.
+
+## Understaning the Hazard Function
+
+Consider a subject in the heart transplant study who has a survival time of 1000 days. Let’s ignore the transplant group information for a moment.
+
+- For this subject to die at 1000 days, they had to survive for the first 999 days.
+- The subject's hazard at 1000 days is the failure rate "per day" conditional on the subject being alive through the first 999 days.
+
+## Estimating the Hazard Function
+
+Suppose we want to estimate H(t) across all subjects. 
+
+- There are several different methods, but we’ll focus on the inverse Kaplan-Meier estimator.
+
+I'll build something called `H.est1`, the inverse K-M estimate...
+
+```{r}
+#| echo: true
+km_1 <- survfit(S ~ 1, data = heart_tr)
+
+Haz1.almost <- -log(km_1$surv)
+
+H_est1 <- c(Haz1.almost, tail(Haz1.almost, 1))
+```
+
+
+## Tibble of times and hazard estimates
+
+```{r}
+#| echo: true
+haz_tib <- tibble(
+  time = c(km_1$time, tail(km_1$time, 1)),
+  inverse_KM = H_est1)
+
+haz_tib
+```
+
+
+## Cumulative Hazard Function from Inverse Kaplan-Meier Estimates
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+ggplot(haz_tib, aes(x = time, y = inverse_KM)) + 
+    geom_step() + 
+    scale_x_continuous(breaks = c(0, 365, 730, 1095, 1460, 1825)) +
+    labs(x = "Days of Follow-Up", 
+         y = "Cumulative Hazard of Death",
+         title = "Cumulative Hazard Function via Inverse K-M")
+```
+
+
+## Cumulative Hazard Function from Inverse Kaplan-Meier Estimates
+
+```{r}
+#| echo: true
+#| fig-height: 4
+
+ggsurvplot(km_1, data = heart_tr, fun = "cumhaz", conf.int = FALSE,
+           xlab = "Days of Follow-Up", break.time.by = 365)
+```
+
+
+## Plotting Cumulative Hazard by Transplant Group
+
+For our `km_tr` fit, we'd use
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+ggsurvplot(km_tr, data = heart_tr, fun = "cumhaz",
+           xlab = "Days of Follow-Up", palette = "aaas",
+           pval = TRUE, pval.coord = c(1450, 0.2),
+           break.time.by = 365,
+           risk.table = TRUE, risk.table.height = 0.25)
+```
+
+
+## Cox Proportional Hazards Regression
+
+```{r}
+#| echo: true
+
+fit1_tr <- coxph(S ~ transplant, data = heart_tr)
+```
+
+The Cox proportional hazards model fits survival data with a constant (not varying over time) covariate (here, transplant group) to a hazard function of the form:
+
+$$
+h(t|transplant) = h_0(t)exp(\beta_1 transplant)
+$$
+
+where we estimate the unknown value of $\beta_1$ and where $h_0(t)$ is the baseline hazard which depends on time $t$ but not on the transplant group.
+
+## Cox Model `fit1_tr`
+
+```{r}
+#| echo: true
+
+fit1_tr
+```
+
+Our hazard ratio estimate is 0.2662 for `transplant` group 1 (vs. `transplant` group 0)
+
+- Hazard ratio < 1 indicates a decrease in hazard for subjects who received a transplant as compared to those who did not. Does this match our plot (repeated on next slide)?
+
+## Plotting Cumulative Hazard by Transplant Group
+
+```{r}
+#| echo: false
+
+ggsurvplot(km_tr, data = heart_tr, fun = "cumhaz",
+           xlab = "Days of Follow-Up", palette = "aaas",
+           pval = TRUE, pval.coord = c(1450, 0.2),
+           break.time.by = 365,
+           risk.table = TRUE, risk.table.height = 0.25)
+```
+
+## Cox Model Parameters (`fit1_tr`)
+
+```{r}
+#| echo: true
+
+model_parameters(fit1_tr, pretty_names = FALSE, ci = 0.90, digits = 3)
+model_parameters(fit1_tr, pretty_names = FALSE, ci = 0.90, digits = 3,
+                 exponentiate = TRUE)
+```
+
+- Compare to `tidy()` results from **broom**?
+
+```{r}
+#| echo: true
+
+tidy(fit1_tr, exponentiate = TRUE, conf.int = TRUE, conf.level = 0.90) |>
+  gt() |> tab_options(table.font.size = 20) |> 
+  fmt_number(decimals = 3) |> opt_stylize(style = 4, color = "blue")
+```
+
+## Cox Model `fit1_tr` Performance
+
+```{r}
+#| echo: true
+#| warning: true
+model_performance(fit1_tr)
+```
+
+- How about `glance()` from **broom**?
+
+```{r}
+#| echo: true
+glance(fit1_tr) |> gt() |> fmt_number(decimals = 2)
+```
+
+## Forest Plot for `fit1_tr` model
+
+```{r}
+#| echo: true
+
+ggforest(fit1_tr)
+```
+
+## Plot Adjusted Survival Curves
+
+```{r}
+#| echo: true
+
+ggadjustedcurves(fit1_tr, data = data.frame(heart_tr), 
+                 method = "average", variable = "transplant")
+```
+
+
+
+## Checking the Proportional Hazards Assumption
+
+If the proportional hazards assumption is appropriate, we should see a slope of essentially zero in the residuals that are plotted against time on the next slide.
+
+- If we see a slope that seriously different from zero, that will suggest a violation of the proportional hazards assumption.
+- A hypothesis test is also performed, where a small p value indicates a potential problem with the assumption.
+
+## Plot to Check Proportional Hazards
+
+```{r}
+#| echo: true
+
+ggcoxzph(cox.zph(fit1_tr))
+```
+
+## Cox Model Diagnostics (`fit1_tr`)
+
+```{r}
+#| echo: true
+
+ggcoxdiagnostics(fit1_tr)
+```
+
+## What if we also include `age`?
+
+```{r}
+#| echo: true
+
+fit2_tr <- coxph(S ~ transplant + age, data = heart_tr)
+
+fit2_tr
+```
+
+## `fit2_tr` model parameters
+
+```{r}
+#| echo: true
+
+model_parameters(fit2_tr, exponentiate = TRUE, pretty_names = FALSE, 
+                 ci = 0.90, digits = 3)
+```
+
+- If Harry is a year older than Steve and each are in the same transplant group, then Harry's hazard of death is 1.062 (90% CI 1.036, 1.089) times that of Steve.
+- If Harry and Sally are the same age, but Sally received a transplant but Harry did not, then Sally's hazard of death is 0.167 (90% CI 0.107, 0.261) times that of Harry.
+
+
+## `fit2_tr` R-square measures
+
+```{r}
+#| echo: true
+model_performance(fit2_tr)
+```
+
+- `model_parameters()` gives the Nagelkerke $R^2$.
+
+```{r}
+#| echo: true
+
+glance(fit2_tr) |> select(n, nevent, nobs, r.squared, r.squared.max) |>
+  gt() |> fmt_number(columns = r.squared:r.squared.max, decimals = 3) |>
+  tab_options(table.font.size = 20) |> opt_stylize(style = 5, color = "blue")
+```
+
+- `glance()` gives the Cox-Snell $R^2$ along with its maximum value (< 1.)
+
+
+## `fit2_tr` concordance measure
+
+```{r}
+#| echo: true
+
+glance(fit2_tr) |> select(n, nevent, nobs, concordance, 
+                          se_conc = std.error.concordance) |>
+  gt() |> fmt_number(columns = concordance:se_conc, decimals = 3) |>
+  tab_options(table.font.size = 20) |> opt_stylize(style = 5, color = "blue")
+```
+
+Compare the model's prediction for a pair of observations in the data. A pair is concordant if the prediction and data agree in direction. Concordance is the fraction of pairs that are concordant. 
+
+- Higher Concordance = better Cox model predictions.
+
+## Forest Plot for `fit2_tr` model
+
+```{r}
+#| echo: true
+
+ggforest(fit2_tr)
+```
+
+## Plot Adjusted Survival Curves
+
+```{r}
+#| echo: true
+
+ggadjustedcurves(fit2_tr, data = data.frame(heart_tr),
+                 method = "average", variable = "transplant")
+```
+
+## Effect of Adding `age`?
+
+- `fit1_tr` includes `transplant` group, `fit2_tr` adds `age`.
+
+```{r}
+#| echo: true
+#| fig-height: 4.5
+
+plot(compare_performance(fit1_tr, fit2_tr))
+```
+
+## ANOVA comparing `fit1_tr` to `fit2_tr`
+
+```{r}
+#| echo: true
+
+anova(fit1_tr, fit2_tr)
+```
+
+## Plot to Check Proportional Hazards
+
+```{r}
+#| echo: true
+
+ggcoxzph(cox.zph(fit2_tr))
+```
+
+## Cox Model Diagnostics (`fit2_tr`)
+
+```{r}
+#| echo: true
+
+ggcoxdiagnostics(fit2_tr)
+```
+
+## Model `fit3_tr` adding `prior` surgery
+
+```{r}
+#| echo: true
+
+fit3_tr <- coxph(S ~ transplant + age + prior, data = heart_tr)
+
+fit3_tr
+```
+
+## `fit3_tr` model parameters
+
+```{r}
+#| echo: true
+
+model_parameters(fit3_tr, exponentiate = TRUE, pretty_names = FALSE, 
+                 ci = 0.90, digits = 3)
+```
+
+## `fit3_tr` R-square measures
+
+```{r}
+#| echo: true
+
+model_performance(fit3_tr)
+
+glance(fit3_tr) |> select(n, nevent, nobs, r.squared, r.squared.max) |>
+  gt() |> fmt_number(columns = r.squared:r.squared.max, decimals = 3) |>
+  tab_options(table.font.size = 20) |> opt_stylize(style = 5, color = "blue")
+```
+
+## `fit3_tr` concordance
+
+```{r}
+#| echo: true
+
+glance(fit3_tr) |> select(n, nevent, nobs, concordance, 
+                          se_conc = std.error.concordance) |>
+  gt() |> fmt_number(columns = concordance:se_conc, decimals = 3) |>
+  tab_options(table.font.size = 20) |> opt_stylize(style = 5, color = "blue")
+```
+
+- Assesses probability of agreement between survival time and the risk score generated by the predictors
+- 1 indicates perfect agreement, 0.5 indicates no better than chance
+
+## Compare our 3 models
+
+```{r}
+#| echo: true
+
+plot(compare_performance(fit1_tr, fit2_tr, fit3_tr))
+```
+
+## Checking PH Assumption for `fit3_tr`
+
+```{r}
+#| echo: true
+
+ggcoxzph(cox.zph(fit3_tr))
+```
+
+## Cox Model Diagnostics for `fit3_tr`
+
+```{r}
+#| echo: true
+
+ggcoxdiagnostics(fit3_tr)
+```
+
+## What happens if we see a violation?
+
+- We could add a non-linear predictor term or use a different kind of survival model.
+
+- If the PH assumption fails on a categorical predictor, fit a Cox model stratified by that predictor (use strata(var) rather than var in the specification of the coxph model.)
+- If the PH assumption is violated, this means the hazard isn’t constant over time, so we could fit separate Cox models for a series of time intervals.
+
+## If we see a violation...
+
+Another option would be to use an extension of the Cox model that permits covariates to vary over time.
+
+Visit <https://cran.r-project.org/web/packages/survival/vignettes/timedep.pdf> for details on building the relevant data sets and models, with examples.
