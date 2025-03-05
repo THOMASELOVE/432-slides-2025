@@ -1,0 +1,654 @@
+---
+title: "432 Class 23"
+author: Thomas E. Love, Ph.D.
+date: "2025-04-08"
+format:
+  revealjs: 
+    theme: dark
+    embed-resources: true
+    self-contained: true
+    slide-number: true
+    footnotes-hover: true
+    preview-links: auto
+    date-format: iso
+    logo: 432-2025-pic.png
+    footer: "432 Class 23 | 2025-04-08 | <https://thomaselove.github.io/432-2025/>"
+---
+
+## Today's Topic
+
+**Cox models for time-to-event data**
+
+- Rossi's study of recidivism in people released from Maryland state prisons
+- Reviewing what we've done so far using `coxph()`
+- Using `cph()` from `rms` to fit three different Cox models
+
+## Setup
+
+```{r}
+#| echo: true
+
+knitr::opts_chunk$set(comment=NA)
+
+library(janitor)
+library(naniar)
+library(here)
+library(conflicted)
+library(broom)
+library(gt)
+library(rms)
+library(survival)
+library(survminer)
+library(easystats)
+library(tidyverse)
+
+theme_set(theme_bw())
+```
+
+## The Rossi Data
+
+This data set is originally from Rossi et al. (1980). The data pertain to 432 convicts who were released from Maryland state prisons in the 1970s and who were followed up for one year after release. Half the released convicts were assigned at random to an experimental treatment in which they were given financial aid; half did not receive aid. Details on Rossi data variables and descriptions are provided [at this link](https://rdrr.io/cran/carData/man/Rossi.html). 
+
+- We will use a subset of the available variables today. 
+- Subject ID code (`s_id`) included in the `rossi.csv` file.
+
+## Variable Descriptions for `rossi_432` {.smaller}
+
+Variable | Description
+:-------: | :------------------------------------------------------
+`s_id` | Subject ID code
+`week` | week of first arrest after release or censoring; all censored observations are censored at 52 weeks.
+`arrest` | 1 if arrested, 0 if not
+`fin` | financial aid: no or yes (main treatment of study)
+`age` | age in years at time of release
+`race` | two categories: black or other
+`wexp` | full-time work experience before incarceration: no or yes
+`prio` | number of convictions prior to current incarceration
+
+## Ingesting the data into `rossi_432`
+
+The `rossi.csv` file on our 432 data page includes 432 observations on 63 variables, but we'll look at just the 8 we listed on the last slide. 
+
+```{r}
+#| echo: true
+
+rossi_432 <- read_csv(here("c23/data/rossi.csv"), show_col_types = FALSE) |>
+  select(s_id, week, arrest, fin, age, race, wexp, prio)  |>
+  mutate(across(where(is.character), as_factor),
+         s_id = as.character(s_id))
+
+dim(rossi_432)
+n_miss(rossi_432)
+```
+
+## The `rossi_432` tibble
+
+```{r}
+#| echo: true
+rossi_432
+```
+
+## Create a survival object
+
+```{r}
+#| echo: true
+ 
+rossi_432$S <- with(rossi_432, Surv(week, arrest == 1))
+
+head(rossi_432$S)
+```
+
+All subjects were followed either for 52 weeks after their release, or until they were (re-)arrested. So all "censored" subjects will have 52 weeks without re-arrest.
+
+### Compare the two financial aid groups
+
+```{r}
+#| echo: true
+
+km_fin <- survfit(S ~ fin, data = rossi_432)
+
+km_fin
+```
+
+## Plot the K-M curves
+
+```{r}
+#| echo: true
+ggsurvplot(km_fin, data = rossi_432, 
+           palette = "aaas", ggtheme = theme_bw(),
+           pval = TRUE)
+```
+
+## Log - Log Plot for K-M estimation
+
+- Do these curves cross?
+
+```{r}
+#| echo: true
+#| fig-height: 4
+plot(survfit(S ~ fin, data = rossi_432), col = c(1:2), fun = "cloglog")
+```
+
+## Cumulative Hazard Plot
+
+```{r}
+#| echo: true
+#| output-location: slide
+
+ggsurvplot(km_fin, data = rossi_432, fun = "cumhaz",
+           xlab = "Weeks of Follow-Up", palette = "aaas",
+           pval = TRUE, break.time.by = 13,
+           risk.table = TRUE, risk.table.height = 0.25)
+```
+
+## Cox Model using `fin` only
+
+```{r}
+#| echo: true
+
+fit1 <- coxph(S ~ fin, data = rossi_432)
+
+fit1
+```
+
+- How do we interpret the hazard ratio estimate of 0.6914?
+
+## `fit1` model parameters
+
+```{r}
+#| echo: true
+
+model_parameters(fit1, pretty_names = FALSE, exponentiate = TRUE,
+                 ci = 0.90, digits = 3)
+```
+
+## Model `fit1` summaries
+
+```{r}
+#| echo: true
+
+model_performance(fit1)
+```
+
+```{r}
+#| echo: true
+
+glance(fit1) |> gt() |> fmt_number(decimals = 3)
+```
+
+## Forest Plot for `fit1`
+
+```{r}
+#| echo: true
+
+ggforest(fit1)
+```
+
+## Checking PH Assumption
+
+```{r}
+#| echo: true
+
+cox.zph(fit1)
+```
+
+## Checking PH Assumption
+
+```{r}
+#| echo: true
+
+ggcoxzph(cox.zph(fit1))
+```
+
+## A larger Cox model (`fit2`)
+
+```{r}
+#| echo: true
+
+fit2 <- coxph(S ~ fin + age + race + wexp + prio, data = rossi_432)
+
+fit2
+```
+
+## `fit2` model parameters
+
+```{r}
+#| echo: true
+
+model_parameters(fit2, pretty_names = FALSE, exponentiate = TRUE,
+                 ci = 0.90, digits = 3)
+```
+
+- How do we interpret the `fin` hazard ratio estimate of 0.694?
+- How about the `prio` hazard ratio estimate of 1.096?
+
+## Model `fit2` summaries
+
+```{r}
+#| echo: true
+
+model_performance(fit2)
+```
+
+```{r}
+#| echo: true
+
+glance(fit2) |> gt() |> fmt_number(decimals = 3)
+```
+
+
+## Checking PH Assumption
+
+```{r}
+#| echo: true
+
+cox.zph(fit2)
+```
+
+## Checking PH Assumption
+
+```{r}
+#| echo: true
+
+ggcoxzph(cox.zph(fit2))
+```
+
+## Compare our two models
+
+```{r}
+#| echo: true
+
+plot(compare_performance(fit1, fit2))
+```
+
+## Using `cph()` from the **rms** package
+
+```{r}
+#| echo: true
+
+dd <- datadist(rossi_432); options(datadist = "dd")
+
+fit1_cph <- cph(S ~ fin, data = rossi_432,
+                x = TRUE, y = TRUE, surv = TRUE)
+
+fit2_cph <- cph(S ~ fin + age + race + wexp + prio, data = rossi_432,
+                x = TRUE, y = TRUE, surv = TRUE)
+```
+
+## `fit1_cph` results
+
+```{r}
+#| echo: true
+
+fit1_cph
+```
+
+## `fit1_cph` Effects Plot
+
+```{r}
+#| echo: true
+#| fig-height: 3
+
+plot(summary(fit1_cph))
+```
+
+```{r}
+#| echo: true
+
+summary(fit1_cph)
+```
+
+## Proportional Hazards Assumption?
+
+```{r}
+#| echo: true
+
+cox.zph(fit1_cph, transform = "km", global = TRUE)
+```
+
+## Proportional Hazards Assumption?
+
+```{r}
+#| echo: true
+
+ggcoxzph(cox.zph(fit1_cph, transform = "km", global = TRUE))
+```
+
+## Bootstrap Validated `fit1_cph` summaries
+
+```{r}
+#| echo: true
+
+set.seed(432)
+validate(fit1_cph, B = 300)
+```
+
+- Validated C statistic = 0.5 + (0.0898/2) = 0.5449
+- Validated Nagelkerke $R^2$ = 0.0077
+
+## `survplot()` from **rms** `fit1_cph`
+
+```{r}
+#| echo: true
+#| fig-height: 4
+
+survplot(fit1_cph, fin = c("yes", "no"),
+         time.inc = 13, type = "kaplan-meier",
+         xlab = "Study Time in Weeks")
+```
+
+## `fit1_cph` Prediction Plot (1/3)
+
+```{r}
+#| echo: true
+ggplot(Predict(fit1_cph))
+```
+
+## `fit1_cph` Prediction Plot (2/3)
+
+```{r}
+#| echo: true
+ggplot(Predict(fit1_cph, fun = exp))
+```
+
+## `fit1_cph` Prediction Plot (3/3)
+
+```{r}
+#| echo: true
+ggplot(Predict(fit1_cph, fun = plogis))
+```
+
+## `fit1_cph` Nomogram
+
+```{r}
+#| echo: true
+#| output-location: slide
+ 
+sv <- Survival(fit1_cph)
+surv52 <- function(x) sv(52, lp = x)
+
+plot(nomogram(fit1_cph, fun = surv52, funlabel = c("52 week survival")))
+```
+
+## `fit2_cph` results
+
+```{r}
+#| echo: true
+
+fit2_cph
+```
+
+## `fit2_cph` Effects Plot
+
+```{r}
+#| echo: true
+
+plot(summary(fit2_cph))
+```
+
+## `fit2_cph` Effects Table
+
+```{r}
+#| echo: true
+
+summary(fit2_cph)
+```
+
+## `survplot()` from **rms** `fit2_cph`
+
+- Looking at the `fin` effect
+
+```{r}
+#| echo: true
+#| fig-height: 4
+
+survplot(fit2_cph, fin = c("no", "yes"),
+         time.inc = 13, type = "kaplan-meier",
+         xlab = "Study Time in Weeks")
+```
+
+## `survplot()` from **rms** `fit2_cph`
+
+- Looking at the `race` effect
+
+```{r}
+#| echo: true
+#| fig-height: 4
+
+survplot(fit2_cph, race = c("black", "other"),
+         time.inc = 13, type = "kaplan-meier",
+         xlab = "Study Time in Weeks")
+```
+
+## `survplot()` from **rms** `fit2_cph`
+
+- Looking at the `age` effect
+
+```{r}
+#| echo: true
+#| fig-height: 4
+
+survplot(fit2_cph, age = c(15, 25, 35, 45),
+         time.inc = 13, type = "kaplan-meier",
+         xlab = "Study Time in Weeks")
+```
+
+## `survplot()` from **rms** `fit2_cph`
+
+- Looking at the `wexp` effect
+
+```{r}
+#| echo: true
+#| fig-height: 4
+
+survplot(fit2_cph, wexp = c("no", "yes"),
+         time.inc = 13, type = "kaplan-meier",
+         xlab = "Study Time in Weeks")
+```
+
+
+## `survplot()` from **rms** `fit2_cph`
+
+- Looking at the `prio` effect
+
+```{r}
+#| echo: true
+#| fig-height: 4
+
+survplot(fit2_cph, prio = c(0, 2, 8, 16),
+         time.inc = 13, type = "kaplan-meier",
+         xlab = "Study Time in Weeks")
+```
+
+## `fit2_cph` Prediction Plots (1/3)
+
+```{r}
+#| echo: true
+ggplot(Predict(fit2_cph))
+```
+
+## `fit2_cph` Prediction Plots (2/3)
+
+```{r}
+#| echo: true
+ggplot(Predict(fit2_cph, fun = exp))
+```
+
+## `fit2_cph` Prediction Plots (3/3)
+
+```{r}
+#| echo: true
+ggplot(Predict(fit2_cph, fun = plogis))
+```
+
+## Proportional Hazards Assumption?
+
+```{r}
+#| echo: true
+
+cox.zph(fit2_cph, transform = "km", global = TRUE)
+```
+
+## Proportional Hazards Assumption?
+
+```{r}
+#| echo: true
+
+ggcoxzph(cox.zph(fit2_cph, transform = "km", global = TRUE))
+```
+
+## Bootstrap Validated `fit2_cph` summaries
+
+```{r}
+#| echo: true
+
+set.seed(432)
+validate(fit2_cph, B = 300)
+```
+
+- Validated C statistic = 0.5 + (0.2429/2) = 0.62145
+- Validated Nagelkerke $R^2$ = 0.0538
+
+## Compare Performance
+
+```{r}
+#| echo: true
+plot(compare_performance(fit1_cph, fit2_cph))
+```
+
+## `fit2_cph` Nomogram
+
+```{r}
+#| echo: true
+#| output-location: slide
+ 
+sv <- Survival(fit2_cph)
+surv52 <- function(x) sv(52, lp = x)
+
+plot(nomogram(fit2_cph, fun = surv52, funlabel = c("52 week survival")))
+```
+
+## Add Non-Linear Terms?
+
+- Notice use of `week` rather than `S` here...
+
+```{r}
+#| echo: true
+
+plot(spearman2(week ~ fin + age + race + wexp + prio, data = rossi_432))
+```
+
+## Model `fit3_cph`
+
+- We'll include a four-knot restricted cubic spline in `age`, and the interaction between `prio` and `wexp`.
+
+```{r}
+#| echo: true
+
+fit3_cph <- cph(S ~ rcs(age, 4) + prio * wexp + fin + race, 
+                data = rossi_432, x = T, y = T, surv = T)
+```
+
+## `fit3_cph`
+
+```{r}
+#| echo: true
+
+fit3_cph
+```
+
+## `fit3_cph` Effects Plot
+
+```{r}
+#| echo: true
+
+plot(summary(fit3_cph))
+```
+
+## `fit3_cph` Effects Table
+
+```{r}
+#| echo: true
+
+summary(fit3_cph)
+```
+
+## `survplot()` from **rms** `fit3_cph`
+
+- Looking at the `fin` effect
+
+```{r}
+#| echo: true
+#| fig-height: 4
+
+survplot(fit3_cph, fin = c("no", "yes"),
+         time.inc = 13, type = "kaplan-meier",
+         xlab = "Study Time in Weeks")
+```
+
+## `survplot()` from **rms** `fit3_cph`
+
+- Looking at the `age` effect
+
+```{r}
+#| echo: true
+#| fig-height: 4
+
+survplot(fit3_cph, age = c(15, 25, 35, 45),
+         time.inc = 13, type = "kaplan-meier",
+         xlab = "Study Time in Weeks")
+```
+
+
+## `fit3_cph` Prediction Plots (raw)
+
+```{r}
+#| echo: true
+ggplot(Predict(fit3_cph))
+```
+
+## `fit3_cph` Prediction Plots (plogis)
+
+```{r}
+#| echo: true
+ggplot(Predict(fit3_cph, fun = plogis))
+```
+
+## Proportional Hazards Assumption?
+
+```{r}
+#| echo: true
+
+ggcoxzph(cox.zph(fit3_cph, transform = "km", global = TRUE))
+```
+
+## Bootstrap Validated `fit3_cph` summaries
+
+```{r}
+#| echo: true
+
+set.seed(432)
+validate(fit3_cph, B = 300)
+```
+
+- Validated C statistic = 0.5 + (0.2417/2) = 0.62085
+- Validated Nagelkerke $R^2$ = 0.0510
+
+## Compare Performance
+
+```{r}
+#| echo: true
+plot(compare_performance(fit1_cph, fit2_cph, fit3_cph))
+```
+
+## `fit3_cph` Nomogram
+
+```{r}
+#| echo: true
+#| output-location: slide
+ 
+sv <- Survival(fit3_cph)
+surv52 <- function(x) sv(52, lp = x)
+
+plot(nomogram(fit3_cph, fun = surv52, funlabel = c("52 week survival")))
+```

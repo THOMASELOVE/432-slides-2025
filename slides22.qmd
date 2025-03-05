@@ -227,7 +227,7 @@ survdiff(S ~ transplant, data = heart_tr)
 ```{r}
 #| echo: true
 #| fig-height: 3
-plot(survfit(S ~ transplant, data = heart_tr), col = c(1), fun = "cloglog")
+plot(survfit(S ~ transplant, data = heart_tr), col = c(1,2), fun = "cloglog")
 ```
 
 ## Cumulative Event Rate for `km_tr`
