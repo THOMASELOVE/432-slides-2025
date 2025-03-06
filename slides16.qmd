@@ -324,7 +324,7 @@ A hazard ratio compares the rate at which our event (like death, or recurrence) 
 
 - A hazard ratio of 1 indicates no difference between the groups
 - A hazard ratio > 1 indicates a higher risk in the named group as compared to the baseline.
-- A hazard ratio < 1 indicates a higher risk in the named group as compared to the baseline.
+- A hazard ratio < 1 indicates a lower risk in the named group as compared to the baseline.
 
 ## The `fit` model
 
