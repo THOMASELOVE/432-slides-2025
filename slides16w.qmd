@@ -297,12 +297,57 @@ ggsurvplot(km_col_rx,
 
 ## Cox Regression Model
 
+This is a Cox proportional hazards regression model.
+
 ```{r}
 #| echo: true
 
 fit <- coxph( Surv(time, status == 0) ~ rx, data = col_432)
 fit
 ```
+
+- The key coefficients are the exponentiated ones, which describe relative hazards (hazard ratios.)
+
+## Hazard Ratios and the Cox Model
+
+A hazard ratio compares the rate at which our event (like death, or recurrence) occurs in one group compared to another group over time, essentially indicating the relative risk of the event happening in one group compared to another.
+
+- A hazard ratio of 1 indicates no difference between the groups
+- A hazard ratio > 1 indicates a higher risk in the named group as compared to the baseline.
+- A hazard ratio < 1 indicates a lower risk in the named group as compared to the baseline.
+
+## The `fit` model
+
+- Our model `fit` looks at the impact of three treatments, with Observation as the baseline treatment, on days until recurrence.
+
+```{r}
+#| echo: true
+exp(fit$coefficients)
+```
+
+## Interpreting our `fit` (1/2)
+
+- Note that we're looking at the exponentiated coefficients here in order to describe relative hazards (hazard ratios.)
+
+```{r}
+#| echo: true
+model_parameters(fit, exponentiate = TRUE, pretty_names = FALSE, 
+                 ci = 0.90, digits = 3) 
+```
+
+The `fit` model estimates the hazard ratio for `rxLev` to be 0.853, with 90% CI (0.699, 1.041) which implies that the hazard of recurrence for a subject receiving Levamisole is estimated to be 85.3% as large as the hazard of recurrence for a subject who received Observation.
+
+## Interpreting our `fit` (2/2)
+
+```{r}
+#| echo: true
+model_parameters(fit, exponentiate = TRUE, pretty_names = FALSE, 
+                 ci = 0.90, digits = 3) 
+```
+
+The `fit` model estimates the hazard ratio for `rxLev+5FU` to be 0.849, with 90% CI (0.705, 1.023) which implies that the hazard of recurrence for a subject receiving Levamisole and 5-FU is estimated to be 84.9% as large as the hazard of recurrence for a subject who received Observation.
+
+- A forest plot can be used to graph this result nicely. (See next slide.)
 
 ## Forest Plot for Cox model
 
@@ -312,7 +357,17 @@ fit
 ggforest(fit, data = col_432)
 ```
 
-## Cox Models
+## Model Performance for `fit`
+
+```{r}
+#| echo: true
+#| message: true
+#| warning: true
+model_performance(fit)
+```
+
+
+## More on Cox Models
 
 Coming in Classes 22 and 23...
 
@@ -325,3 +380,4 @@ write_rds(col_432, here("c16/data/col_432.Rds"))
 ```
 
 I've placed these data on [our 432 data page](https://github.com/THOMASELOVE/432-data).
+

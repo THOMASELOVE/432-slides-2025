@@ -335,7 +335,7 @@ from [this source](https://library.virginia.edu/data/articles/interpreting-log-t
 model_parameters(mod_1, exponentiate = TRUE, ci = 0.90)
 ```
 
-- A change from no to yes in `insurance` (holding other predictors  constant) is associated with a 22% increase in our outcome, `edu`.
+- A change from no to yes in `insurance` (holding other predictors  constant) is associated with a 22% increase in our outcome, `visits`.
 
 ## `mod_1` performance summaries
 
