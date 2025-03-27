@@ -301,6 +301,14 @@ model_performance(modelA)
 glance(modelA)
 ```
 
+## `check_model()` results
+
+```{r}
+#| echo: true
+check_model(modelA)
+```
+
+
 # Comparing `polr` models
 
 ## `modelA` vs. "Intercept only" model
@@ -498,10 +506,30 @@ BIC(mult_TV, modelTV)
 plot(compare_performance(mult_TV, modelTV))
 ```
 
+## `check_model()` for POLR
+
+```{r}
+#| echo: true
+check_model(modelTV)
+```
+
+## `check_model()` for Multinomial
+
+```{r}
+#| echo: true
+check_model(mult_TV)
+```
 
 # Using `rms` to fit the POLR model via `lrm()`
 
-## Proportional Odds Ordinal Logistic Regression with `lrm()`
+## Spearman $\rho^2$?
+
+```{r}
+#| echo: true
+plot(spearman2(exposure ~ task + ventilation + dur_c, data=asbestos))
+```
+
+## Proportional Odds Logistic Regression with `lrm()`
 
 ```{r}
 #| echo: true
@@ -530,6 +558,15 @@ model_TV_LRM
 plot(summary(model_TV_LRM))
 ```
 
+## Calibrate `lrm()` fit?
+
+```{r}
+#| echo: true
+
+plot(calibrate(model_TV_LRM))
+```
+
+
 ## `lrm()` fit, plotted on log odds scale
 
 ```{r}
@@ -555,6 +592,67 @@ validate(model_TV_LRM)
 ```
 
 Validated $C$ = 0.5 + (0.6964/2) = 0.8482
+
+## Model with Task-Ventilation Interaction
+
+```{r}
+#| echo: true
+
+d <- datadist(asbestos)
+options(datadist = "d")
+
+# note that exposure must be an ordered factor
+
+model_TxV_LRM <- lrm(exposure ~ task * ventilation,
+                 data = asbestos, x = TRUE, y = TRUE)
+```
+
+## `model_TxV_LRM` fit
+
+```{r}
+#| echo: true
+model_TxV_LRM
+```
+
+## Effects Plot: `model_TxV_LRM`
+
+```{r}
+#| echo: true
+
+plot(summary(model_TxV_LRM))
+```
+
+
+## `model_TxV_LRM` on log odds scale
+
+```{r}
+#| echo: true
+
+ggplot(Predict(model_TxV_LRM), layout = c(1,2))
+```
+
+## `model_TxV_LRM` on probability scale
+
+```{r}
+#| echo: true
+
+ggplot(Predict(model_TxV_LRM, fun = plogis), layout = c(1,2))
+```
+
+## Calibrate or Validate?
+
+produces...
+
+```
+Error in predab.resample(fit, method = method, fit = fitit, measure = cal.error,  : 
+  A training sample has a different number of intercepts (1)
+than the original model fit (2).
+You probably fit an ordinal model with sparse cells and a re-sample
+did not select at least one observation for each value of Y.
+Add the argument group=y where y is the response variable.
+This will force balanced sampling on levels of y.
+```
+
 
 ## All possible combinations of T and V
 
@@ -636,7 +734,7 @@ model_TV_ORM
 plot(summary(model_TV_ORM))
 ```
 
-## POLR model fit with `orm`, plotted
+## `orm` model fit, plotted
 
 ```{r}
 #| echo: true
