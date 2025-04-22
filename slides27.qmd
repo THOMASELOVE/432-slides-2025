@@ -17,7 +17,7 @@ format:
 
 ## Agenda
 
-- Building and Assessing Statistical Work in 2024
+- Building and Assessing Statistical Work in 2025
 - Maintaining and Enhancing What You've Learned
     - [Statistical Problems to Document and To Avoid](https://discourse.datamethods.org/t/author-checklist/3407)
     - [A CHecklist for statistical Assessment of Medical Papers (the CHAMP statement): explanation and elaboration](https://bjsm.bmj.com/content/55/18/1009.2)
@@ -297,7 +297,7 @@ The editor went on to specifically criticize Jefferson, Soares-Weiser also said,
 
 ![](c27/figures/wideci_3.png)
 
-# How I do Assessment of Projects
+# What I tried to do in the Assessment of your Projects
 
 ## George Cobb on Assessment (2004)
 
@@ -305,32 +305,32 @@ The editor went on to specifically criticize Jefferson, Soares-Weiser also said,
 
 > (My remarks) address three concerns:  fairness, grade inflation, and a third concern that for now I’ll simply label "Roger."  Each of the three concerns is linked to a corresponding attitude toward assessment.
 
-## What am I doing in your Project B presentation?
+## What was I doing in your Project B presentation?
 
-1. I'm trying to **systematically** pay attention to you.
+1. I was trying to **systematically** pay attention to you.
 
-2. I’m trying to emphasize things you’ve done well and things you can fix.
+2. I was trying to emphasize things you’ve done well and things you can fix.
 
 ---
 
 ![](c27/figures/roger.png) (from Gary Larson)
 
-## What am I doing?
+## What was I doing?
 
-1. I'm trying to **systematically** pay attention to you.
+1. I was trying to **systematically** pay attention to you.
 
-2. I’m trying to emphasize things you’ve done well and things you can fix.
+2. I was trying to emphasize things you’ve done well and things you can fix.
 
-3. I’m trying to make it safe to screw up.
+3. I was trying to make it safe to screw up.
 
-4. And I’m abandoning fairness in favor of assessing your work in your context.
+4. And I was abandoning fairness in favor of assessing your work in your context.
 
 ## From Cobb... {.smaller}
 
 > For all students, both the more prepared and the less prepared, both the quicker learners and the slower learners, misdirected notions of fairness encourage a sense of competition, discourage helping others, and encourage students to judge themselves and their accomplishments by comparing themselves with others, rather than judging themselves by what works best for them as individuals. 
 > ... Two different students taking the same course will inevitably get different things from it.  We should embrace that inevitable difference, and try to see that each student gets as much as possible from our course, regardless of starting place. 
 
-## Project B involves comparing models... {.smaller}
+## Project B involved comparing models... {.smaller}
 
 - Modeling a count outcome
   - Compare a Poisson model to a ZIP model, for example
