@@ -17,12 +17,79 @@ format:
 
 ## Agenda
 
+- Eight loose ends
 - Building and Assessing Statistical Work in 2025
 - Maintaining and Enhancing What You've Learned
     - [Statistical Problems to Document and To Avoid](https://discourse.datamethods.org/t/author-checklist/3407)
     - [A CHecklist for statistical Assessment of Medical Papers (the CHAMP statement): explanation and elaboration](https://bjsm.bmj.com/content/55/18/1009.2)
     - [Biostatistical Modeling Plan](https://www.fharrell.com/post/modplan) from Frank Harrell.
 - and some surprises...
+
+# Eight loose ends...
+
+## Loose End 1
+
+![](c27/figures/loose1.png)
+
+In this `lrm()` fit, what do R2(20,1000) and R2(20,567) mean?
+
+- See <https://hbiostat.org/bib/r2.html>.
+
+## Loose End 2
+
+What can you do when you're fitting a model to predict a multi-categorical outcome with highly unbalanced categories?
+
+Options include 
+
+- [discriminant analysis](https://uw.pressbooks.pub/appliedmultivariatestatistics/chapter/discriminant-analysis/), 
+- [k-nearest neighbors](https://www.youtube.com/watch?v=v5CcxPiYSlA), and 
+- [Random Forest Classifiers](https://bradleyboehmke.github.io/HOML/random-forest.html) among other things
+
+## Loose End 3
+
+What can you do if you don't believe the proportional hazards assumption in a time-to-event analysis?
+
+- [Introduction to Survival Analysis in R](https://stats.oarc.ucla.edu/wp-content/uploads/2025/02/survival_r_full.html) from UCLA gives examples of the two most common strategies: stratify by the non-PH variable and add an interaction of the non-PH variable with time to the model
+- [Survival Analysis with R](https://rviews.rstudio.com/2017/09/25/survival-analysis-with-r/) by Joseph Rickert (2017) links to several nice tutorials.
+- [Methods for non-proportional hazards in clinical trials: A systematic review](https://pmc.ncbi.nlm.nih.gov/articles/PMC11162097/) by Bardo et al. 2024 is a good summary.
+
+## Loose End 4
+
+Gelman A (2008) [Scaling regression inputs by dividing by two standard deviations](https://sites.stat.columbia.edu/gelman/research/published/standardizing7.pdf) (PDF)
+
+> Interpretation of regression coefficients is sensitive to the scale of the inputs. One method often used to place input variables on a common scale is to divide each numeric variable by its standard deviation. Here we propose dividing each numeric variable by two times its standard deviation.... The resulting coefficients are then directly comparable for untransformed binary predictors.
+
+## Loose End 5
+
+What do you do to transform data that aren't tamed well by a power transformation?
+
+- [Yeo-Johnson transformation](https://en.wikipedia.org/wiki/Power_transform#Yeo%E2%80%93Johnson_transformation) can handle both positive and negative outcome values, unlike [Box-Cox](https://en.wikipedia.org/wiki/Power_transform#Box%E2%80%93Cox_transformation).
+- [Median regression](https://library.virginia.edu/data/articles/getting-started-with-quantile-regression) (or, more generally, quantile regression) is less sensitive to outliers and non-normality, as is using [robust standard errors](https://library.virginia.edu/data/articles/understanding-robust-standard-errors).
+- Use [bootstrap methods](https://svmiller.com/blog/2020/03/bootstrap-standard-errors-in-r/) to estimate standard errors.
+- The [bestNormalize](https://petersonr.github.io/bestNormalize/index.html) package in R.
+
+## Loose End 6
+
+How do I incorporate something other than a weakly informative prior in `stan_glm()` when I fit a Bayesian regression?
+
+- See [these vignettes](https://mc-stan.org/rstanarm/articles/index.html) for [the rstanarm package](https://mc-stan.org/rstanarm/index.html)
+- Use [tidymodels](https://www.tidymodels.org/) as demonstrated in its [learning tools](https://www.tidymodels.org/start/) or in [Tidy Modeling with R](https://www.tmwr.org/) by Kuhn and Silge.
+
+## Loose End 7
+
+How do I ingest an ASCII file into R, like [these .dat files associated with the YRBS]https://www.cdc.gov/yrbs/data/index.html)?
+
+- Often all you need is `read_delim()`, which works like `read_csv()` and which is part of [the readr package](https://readr.tidyverse.org/reference/read_delim.html) in the core tidyverse.
+- Check out the Data import with the tidyverse [cheat sheet](https://raw.githubusercontent.com/rstudio/cheatsheets/main/data-import.pdf)
+- In fact, many of the [Posit Cheat Sheets](https://posit.co/resources/cheatsheets/) are worth a look.
+
+## Loose End 8
+
+Dr. Love, thanks for the information about the tidyverse, but I need to code something in base R now for some horrible reason. Is there a place I can go to get an idea of what's happening there?
+
+- [R for Data Science](https://r4ds.hadley.nz/) has a chapter called [A field guide to base R](https://r4ds.hadley.nz/base-R.html) which might be useful to you.
+- This [dplyr vignette](https://dplyr.tidyverse.org/articles/base.html) compared dplyr functions to their base R equivalents.
+- This [article by David Robinson](http://varianceexplained.org/r/teach-tidyverse/) formed a lot of my thinking around why I teach the tidyverse.
 
 # On Fitting Regression Models
 
